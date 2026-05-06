@@ -8,8 +8,15 @@ import {
   IonText,
   IonSpinner,
   IonIcon,
+  IonActionSheet,
 } from "@ionic/react";
-import { cameraOutline, personOutline } from "ionicons/icons";
+import {
+  cameraOutline,
+  imageOutline,
+  personOutline,
+  trashOutline,
+} from "ionicons/icons";
+import { Camera } from "@capacitor/camera";
 import { useHistory } from "react-router-dom";
 import { initDatabase, insertUser, seedExampleData } from "../lib/Database";
 
@@ -21,6 +28,7 @@ const Onboarding: React.FC = () => {
   const [image, setImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showImageSheet, setShowImageSheet] = useState(false);
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -30,6 +38,22 @@ const Onboarding: React.FC = () => {
       setImage(typeof reader.result === "string" ? reader.result : null);
     reader.readAsDataURL(file);
     e.target.value = "";
+  }
+
+  async function openCamera() {
+    try {
+      const result = await Camera.takePhoto({ quality: 80 });
+      if (!result.webPath) return;
+      const blob = await fetch(result.webPath).then((r) => r.blob());
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+      setImage(dataUrl);
+    } catch {
+      // cancelled
+    }
   }
 
   async function handleStart() {
@@ -85,7 +109,7 @@ const Onboarding: React.FC = () => {
                 marginBottom: 8,
               }}
             >
-              ¡Bienvenido a Acordate!
+              ¡Bien podei' Acordate, vo'!
             </p>
             <p
               style={{
@@ -95,13 +119,13 @@ const Onboarding: React.FC = () => {
                 lineHeight: 1.5,
               }}
             >
-              Cuéntanos quién eres para empezar.
+              Personaliza tu perfil para empezar.
             </p>
           </div>
 
           {/* Avatar picker */}
           <div
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setShowImageSheet(true)}
             style={{
               position: "relative",
               width: 140,
@@ -173,10 +197,15 @@ const Onboarding: React.FC = () => {
           <div style={{ width: "100%", maxWidth: 400 }}>
             <IonItem
               lines="full"
-              style={{ "--background": "transparent", "--padding-start": "0" } as React.CSSProperties}
+              style={
+                {
+                  "--background": "transparent",
+                  "--padding-start": "0",
+                } as React.CSSProperties
+              }
             >
               <IonInput
-                label="Tu nombre"
+                label="Ingrese su nombre aquí"
                 labelPlacement="floating"
                 value={name}
                 placeholder="Ej. Maria"
@@ -204,6 +233,45 @@ const Onboarding: React.FC = () => {
             {saving ? <IonSpinner name="crescent" /> : "Empezar"}
           </IonButton>
         </div>
+
+        {/* Image source action sheet */}
+        <IonActionSheet
+          isOpen={showImageSheet}
+          onDidDismiss={() => setShowImageSheet(false)}
+          header="Foto de perfil"
+          buttons={[
+            {
+              text: "Camara",
+              icon: cameraOutline,
+              handler: () => {
+                openCamera();
+              },
+            },
+            {
+              text: "Galeria",
+              icon: imageOutline,
+              handler: () => {
+                fileInputRef.current?.click();
+              },
+            },
+            ...(image
+              ? [
+                  {
+                    text: "Eliminar foto",
+                    icon: trashOutline,
+                    role: "destructive" as const,
+                    handler: () => {
+                      setImage(null);
+                    },
+                  },
+                ]
+              : []),
+            {
+              text: "Cancelar",
+              role: "cancel" as const,
+            },
+          ]}
+        />
       </IonContent>
     </IonPage>
   );
