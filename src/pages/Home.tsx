@@ -63,22 +63,26 @@ const Home: React.FC = () => {
     setLoading(true);
     try {
       await initDatabase();
-      await seedExampleData();
 
       const users = await getUsers();
       const currentUser = users[0] ?? null;
-      setUser(currentUser);
 
-      if (currentUser) {
-        const userDecks = await getDecks(currentUser.id);
-        const deckRows: DeckRow[] = await Promise.all(
-          userDecks.map(async (deck) => {
-            const cards = await getCards(deck.id);
-            return { ...deck, cards };
-          }),
-        );
-        setDecks(deckRows);
+      if (!currentUser) {
+        history.replace("/bienvenida");
+        return;
       }
+
+      setUser(currentUser);
+      await seedExampleData(currentUser.id);
+
+      const userDecks = await getDecks(currentUser.id);
+      const deckRows: DeckRow[] = await Promise.all(
+        userDecks.map(async (deck) => {
+          const cards = await getCards(deck.id);
+          return { ...deck, cards };
+        }),
+      );
+      setDecks(deckRows);
     } catch (err) {
       setError(String(err));
     } finally {

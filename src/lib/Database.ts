@@ -171,13 +171,11 @@ export async function deleteCard(cardId: number): Promise<void> {
   await conn.run("DELETE FROM card WHERE id = ?", [cardId]);
 }
 
-export async function seedExampleData(): Promise<void> {
+export async function seedExampleData(userId: number): Promise<void> {
   const conn = await getDb();
 
-  const existing = await conn.query("SELECT id FROM user LIMIT 1");
+  const existing = await conn.query("SELECT id FROM deck WHERE user_id = ? LIMIT 1", [userId]);
   if ((existing.values ?? []).length > 0) return;
-
-  const userId = await insertUser({ name: "Raul", image: null });
 
   const spanishDeckId = await insertDeck({
     name: "Spanish Vocabulary",

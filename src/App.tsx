@@ -8,6 +8,7 @@ import ViewDeck from "./pages/ViewDeck";
 import AddCard from "./pages/AddCard";
 import ModifyCard from "./pages/ModifyCard";
 import PracticeView from "./pages/PracticeView";
+import Onboarding from "./pages/Onboarding";
 
 //CSS Imports
 
@@ -84,6 +85,9 @@ const App: React.FC = () => (
         </Route>
         <Route exact path="/practicar/:id">
           <PracticeView />
+        </Route>
+        <Route exact path="/bienvenida">
+          <Onboarding />
         </Route>
         <Route exact path="/">
           <Redirect to="/home" />
