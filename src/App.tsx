@@ -2,6 +2,11 @@ import { Redirect, Route } from "react-router-dom";
 import { IonApp, IonRouterOutlet, setupIonicReact } from "@ionic/react";
 import { IonReactRouter } from "@ionic/react-router";
 import Home from "./pages/Home";
+import AddDeck from "./pages/AddDeck";
+import ModifyDeck from "./pages/ModifyDeck";
+import ViewDeck from "./pages/ViewDeck";
+import AddCard from "./pages/AddCard";
+import PracticeView from "./pages/PracticeView";
 
 //CSS Imports
 
@@ -60,6 +65,21 @@ const App: React.FC = () => (
       <IonRouterOutlet>
         <Route exact path="/home">
           <Home />
+        </Route>
+        <Route exact path="/agregar-mazo">
+          <AddDeck />
+        </Route>
+        <Route exact path="/modificar-mazo/:id">
+          <ModifyDeck />
+        </Route>
+        <Route exact path="/ver-mazo/:id">
+          <ViewDeck />
+        </Route>
+        <Route exact path="/agregar-tarjeta/:deckId">
+          <AddCard />
+        </Route>
+        <Route exact path="/practicar/:id">
+          <PracticeView />
         </Route>
         <Route exact path="/">
           <Redirect to="/home" />
