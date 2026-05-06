@@ -152,6 +152,12 @@ export async function getCards(deckId: number): Promise<Card[]> {
   return (result.values ?? []) as Card[];
 }
 
+export async function getCardById(cardId: number): Promise<Card | null> {
+  const conn = await getDb();
+  const result = await conn.query("SELECT * FROM card WHERE id = ?", [cardId]);
+  return ((result.values ?? [])[0] as Card) ?? null;
+}
+
 export async function updateCard(card: Card): Promise<void> {
   const conn = await getDb();
   await conn.run(

@@ -192,6 +192,53 @@ const PracticeView: React.FC = () => {
     }, SWAP_AT);
   }
 
+  useEffect(() => {
+    let lastShake = 0;
+    let lastX = 0, lastY = 0, lastZ = 0;
+    let primed = false;
+    const SHAKE_DELTA = 28; // m/s² of jerk between samples
+    const COOLDOWN = 900;
+
+    function onMotion(e: DeviceMotionEvent) {
+      if (busy.current) return;
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const x = acc.x ?? 0, y = acc.y ?? 0, z = acc.z ?? 0;
+
+      if (!primed) {
+        lastX = x; lastY = y; lastZ = z;
+        primed = true;
+        return;
+      }
+
+      const dx = x - lastX, dy = y - lastY, dz = z - lastZ;
+      const delta = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      lastX = x; lastY = y; lastZ = z;
+
+      if (delta > SHAKE_DELTA) {
+        const now = Date.now();
+        if (now - lastShake > COOLDOWN) {
+          lastShake = now;
+          const side = Math.random() < 0.5 ? -1 : 1;
+          flyAway(side * 80, -60, side * 1.0, -0.6);
+        }
+      }
+    }
+
+    const DME = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent;
+    if (DME && typeof DME.requestPermission === "function") {
+      DME.requestPermission()
+        .then((res) => {
+          if (res === "granted") window.addEventListener("devicemotion", onMotion);
+        })
+        .catch(() => {});
+    } else {
+      window.addEventListener("devicemotion", onMotion);
+    }
+
+    return () => window.removeEventListener("devicemotion", onMotion);
+  }, []);
+
   if (loading) {
     return (
       <IonPage>

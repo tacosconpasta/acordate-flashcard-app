@@ -6,6 +6,7 @@ import AddDeck from "./pages/AddDeck";
 import ModifyDeck from "./pages/ModifyDeck";
 import ViewDeck from "./pages/ViewDeck";
 import AddCard from "./pages/AddCard";
+import ModifyCard from "./pages/ModifyCard";
 import PracticeView from "./pages/PracticeView";
 
 //CSS Imports
@@ -77,6 +78,9 @@ const App: React.FC = () => (
         </Route>
         <Route exact path="/agregar-tarjeta/:deckId">
           <AddCard />
+        </Route>
+        <Route exact path="/modificar-tarjeta/:id">
+          <ModifyCard />
         </Route>
         <Route exact path="/practicar/:id">
           <PracticeView />

@@ -41,7 +41,10 @@ const ViewDeck: React.FC = () => {
     setLoading(true);
     try {
       const found = await getDeckById(Number(id));
-      if (!found) { setError("Mazo no encontrado."); return; }
+      if (!found) {
+        setError("Mazo no encontrado.");
+        return;
+      }
       setDeck(found);
       setCards(await getCards(Number(id)));
     } catch (err) {
@@ -51,8 +54,12 @@ const ViewDeck: React.FC = () => {
     }
   }
 
-  useEffect(() => { load(); }, [id]);
-  useIonViewWillEnter(() => { load(); });
+  useEffect(() => {
+    load();
+  }, [id]);
+  useIonViewWillEnter(() => {
+    load();
+  });
 
   return (
     <IonPage>
@@ -67,7 +74,9 @@ const ViewDeck: React.FC = () => {
         }
       >
         {loading && (
-          <div style={{ display: "flex", justifyContent: "center", marginTop: 80 }}>
+          <div
+            style={{ display: "flex", justifyContent: "center", marginTop: 80 }}
+          >
             <IonSpinner name="crescent" />
           </div>
         )}
@@ -135,7 +144,11 @@ const ViewDeck: React.FC = () => {
                   size="small"
                   onClick={() => history.goBack()}
                   style={
-                    { "--color": "white", "--padding-start": "0", "--padding-end": "0" } as React.CSSProperties
+                    {
+                      "--color": "white",
+                      "--padding-start": "0",
+                      "--padding-end": "0",
+                    } as React.CSSProperties
                   }
                 >
                   <IonIcon icon={arrowBackOutline} slot="icon-only" />
@@ -145,7 +158,13 @@ const ViewDeck: React.FC = () => {
 
             {/* Deck info */}
             <div style={{ padding: "20px 20px 0" }}>
-              <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: "1.5rem" }}>
+              <p
+                style={{
+                  margin: "0 0 6px",
+                  fontWeight: 700,
+                  fontSize: "1.5rem",
+                }}
+              >
                 {deck.name}
               </p>
 
@@ -184,13 +203,26 @@ const ViewDeck: React.FC = () => {
             >
               <p style={{ margin: 0, fontWeight: 700, fontSize: "1.1rem" }}>
                 Tarjetas{" "}
-                <span style={{ fontWeight: 400, fontSize: "0.9rem", color: "var(--ion-color-medium)" }}>
+                <span
+                  style={{
+                    fontWeight: 400,
+                    fontSize: "0.9rem",
+                    color: "var(--ion-color-medium)",
+                  }}
+                >
                   ({cards.length})
                 </span>
               </p>
 
-              <IonButton fill="clear" size="small" onClick={() => setEditing((v) => !v)}>
-                <IonIcon icon={editing ? eyeOffOutline : eyeOutline} slot="start" />
+              <IonButton
+                fill="clear"
+                size="small"
+                onClick={() => setEditing((v) => !v)}
+              >
+                <IonIcon
+                  icon={editing ? eyeOffOutline : eyeOutline}
+                  slot="start"
+                />
                 {editing ? "Ocultar" : "Editar"}
               </IonButton>
             </div>
@@ -217,14 +249,17 @@ const ViewDeck: React.FC = () => {
                   No hay tarjetas en este mazo aun.
                 </p>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
                   {cards.map((card) => (
                     <div
                       key={card.id}
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        background: "var(--ion-card-background, var(--ion-item-background))",
+                        background:
+                          "var(--ion-card-background, var(--ion-item-background))",
                         borderRadius: 14,
                         padding: "14px 12px",
                         boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
@@ -262,7 +297,9 @@ const ViewDeck: React.FC = () => {
                         <IonButton
                           fill="clear"
                           size="small"
-                          onClick={() => history.push(`/modificar-tarjeta/${card.id}`)}
+                          onClick={() =>
+                            history.push(`/modificar-tarjeta/${card.id}`)
+                          }
                         >
                           <IonIcon icon={createOutline} slot="icon-only" />
                         </IonButton>
@@ -288,7 +325,11 @@ const ViewDeck: React.FC = () => {
           header="Eliminar tarjeta"
           message="¿Seguro que deseas eliminar esta tarjeta?"
           buttons={[
-            { text: "Cancelar", role: "cancel", handler: () => setDeleteCardId(null) },
+            {
+              text: "Cancelar",
+              role: "cancel",
+              handler: () => setDeleteCardId(null),
+            },
             {
               text: "Eliminar",
               role: "destructive",
@@ -303,7 +344,13 @@ const ViewDeck: React.FC = () => {
           onDidDismiss={() => setDeleteCardId(null)}
         />
 
-        <IonFab slot="fixed" style={{ bottom: "calc(var(--ion-safe-area-bottom) + 28px)", right: "16px" }}>
+        <IonFab
+          slot="fixed"
+          style={{
+            bottom: "calc(var(--ion-safe-area-bottom) + 28px)",
+            right: "16px",
+          }}
+        >
           <IonFabButton onClick={() => history.push(`/agregar-tarjeta/${id}`)}>
             <IonIcon icon={addOutline} />
           </IonFabButton>

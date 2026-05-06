@@ -8,6 +8,11 @@
 # testing
 /coverage
 
+# context files
+chat.MD
+claude.MD
+*.MD
+
 # production
 /dist
 /ios
