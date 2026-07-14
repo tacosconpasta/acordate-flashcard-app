@@ -23,7 +23,7 @@ Acórdate is a cross-platform flashcard app that runs natively on iOS and Androi
 </p>
 
 <p align="center">
-  <em>Aplicación de Mazos para facilitar el aprendizaje y agilizar la memorización de conceptos.</em>
+  <em>Simple local mobile flashcard application to foster learning and memorization of concepts.</em>
 </p>
 
 ---
