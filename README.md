@@ -55,9 +55,7 @@ Acórdate is a cross-platform flashcard app that runs natively on iOS and Androi
 - **Practice mode**
 
   - Physics-based swipe-to-dismiss with velocity fling
-  - 3D flip on tap
   - Shake phone to discard current card
-  - Stacked card peek (next card visible behind the current one)
   - Auto-reshuffle on deck completion
 
 <div align="center">
