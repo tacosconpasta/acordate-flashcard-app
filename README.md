@@ -14,64 +14,66 @@
 
 ---
 
+<p align="center">
 Acórdate is a cross-platform flashcard app that runs natively on iOS and Android (via Capacitor).
+</p>
+
+<p align="center">
+  <img src=".github/assets/acordate-app-preview.png" alt="Imagen de Vista Principal" width="320" />
+</p>
+
+<p align="center">
+  <em>Aplicación de Mazos para facilitar el aprendizaje y agilizar la memorización de conceptos.</em>
+</p>
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| UI Framework | [Ionic React](https://ionicframework.com/) v8 |
-| Frontend | React 19 + TypeScript 5.9 |
-| Build | Vite 5 + Ionic |
-| Native Runtime | Capacitor v8 (iOS & Android) |
-| Storage | `@capacitor-community/sqlite` (native) / `sql.js` + `jeep-sqlite` |
-| Routing | React Router v5 via `@ionic/react-router` |
-| Testing | Vitest (unit) + Cypress (e2e) | #None as of yet
+| Layer          | Technology                                                        |
+| -------------- | ----------------------------------------------------------------- |
+| UI Framework   | [Ionic React](https://ionicframework.com/) v8                     |
+| Frontend       | React 19 + TypeScript 5.9                                         |
+| Build          | Vite 5 + Ionic                                                    |
+| Native Runtime | Capacitor v8 (iOS & Android)                                      |
+| Storage        | `@capacitor-community/sqlite` (native) / `sql.js` + `jeep-sqlite` |
+| Routing        | React Router v5 via `@ionic/react-router`                         |
+| Testing        | Vitest (unit) + Cypress (e2e) — _none as of yet_                  |
 
 ---
 
 ## Features
 
 - **Decks** — create, edit, delete, and view your practice decks.
+<div align="center" width="320">
+
+<img src=".github/assets/acordate-view-deck.png" width="320"/>
+
+</div>
+
 - **Cards** — front / back / description per card
 - **Practice mode**
+
   - Physics-based swipe-to-dismiss with velocity fling
   - 3D flip on tap
   - Shake phone to discard current card
   - Stacked card peek (next card visible behind the current one)
   - Auto-reshuffle on deck completion
 
-- **Multi-user** — separate deck libraries per user profile
+<div align="center">
+
+![Practice View](.github/assets/acordate-practice-view.gif)
+
+</div>
+
 - **Dark mode** — follows system preference via `@media (prefers-color-scheme: dark)`
-- **NATIVE** — Meant for iOS and Android use only, because SQLite doesn't work on web.
+<div align="center" width="320">
 
----
+<img src=".github/assets/acordate-dark-mode.png" width="320"/>
 
-### Practice Engine — `src/pages/PracticeView.tsx`
+</div>
 
-The practice screen is the technical centerpiece. Cards are shuffled with Fisher-Yates on load and auto-reshuffled when the deck is exhausted.
-
-**Gesture system** is built on the Pointer Events API (single unified handler for mouse, touch, and stylus):
-
-- `onPointerDown` / `onPointerMove` — tracks position delta and maintains a rolling 6-sample velocity buffer for fling detection
-- `onPointerUp` — evaluates `dist` and `speed` to decide between: **tap-to-flip**, **fling-to-dismiss**, **snap-back**, or **swipe-hint-flip**
-
-**Fly-away animation** runs via direct DOM style mutation (`wrapperRef.current.style`) to keep it off React's render cycle. After the card exits the viewport, content is swapped and a double `requestAnimationFrame` ensures the new card content is painted before the entrance transition fires — preventing a flash of stale content.
-
-**3D flip** uses CSS `transform-style: preserve-3d` + `backface-visibility: hidden` on two absolutely-positioned face divs. `animateFlip.current` (a ref, not state) gates the CSS transition so dragging doesn't trigger a flip animation.
-
-**Shake-to-dismiss** uses the `DeviceMotionEvent` API. On iOS 13+, it requests permission via `DeviceMotionEvent.requestPermission()`. Jerk magnitude is computed as `√(Δx² + Δy² + Δz²)` between samples; crossing 28 m/s² triggers a fling with a 900 ms cooldown.
-
-### Models — `src/models/`
-
-```
-User      { id, name, image }
-Deck      { id, name, image, description, last_practiced, user_id }
-Card      { id, front, back, description, last_practiced, deck_id }
-DeckWithCards extends Deck { cards: Card[] }
-```
+- **Mobile Native** — Meant for multiplatform use in iOS and Android. (SQLite doesn't work on web.)
 
 ## Getting Started
 
@@ -119,7 +121,7 @@ src/
 │   ├── AddDeck.tsx / ModifyDeck.tsx
 │   ├── ViewDeck.tsx
 │   ├── AddCard.tsx / ModifyCard.tsx
-│   └── PracticeView.tsx 
+│   └── PracticeView.tsx
 ├── theme/ #Possible future variables
 │   └── variables.css
 └── App.tsx #Route definitions
