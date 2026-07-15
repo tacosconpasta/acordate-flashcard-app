@@ -1,4 +1,4 @@
-<h1 align="center">Acórdate</h1>
+<h1 align="center">Acordate</h1>
 
 <p align="center">
   <strong>A flashcard app built to feel native — swipe, shake, and flip your way to fluency.</strong>
@@ -15,7 +15,7 @@
 ---
 
 <p align="center">
-Acórdate is a cross-platform flashcard app that runs natively on iOS and Android (via Capacitor).
+Acordate is a cross-platform flashcard app that runs natively on iOS and Android (via Capacitor).
 </p>
 
 <p align="center">
