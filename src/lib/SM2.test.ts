@@ -108,3 +108,81 @@ describe("secuencia de aciertos", () => {
     expect(card.interval).toBe(SM2.MAX_INTERVAL);
   });
 });
+
+//Simular olvidos
+describe("olvidos", () => {
+  //Tarjeta con tres aciertos seguidos: intervalo 15 y facilidad todavía en 2.5
+  const learned = sm2.rate(sm2.rate(sm2.rate(SM2.fresh(), true), true), true);
+
+  it("reinician el conteo pero conservan la facilidad reducida", () => {
+    const forgot = sm2.rate(learned, false);
+
+    // La racha y el intervalo vuelven a 0, la tarjeta se repite hoy
+    expect(forgot.repetitions).toBe(0);
+    expect(forgot.interval).toBe(0);
+
+    //La facilidad no se reinicia, queda más baja como castigo por el olvido
+    expect(forgot.ease_factor).toBeLessThan(learned.ease_factor);
+  });
+
+  it("después de olvidar se vuelve a empezar en 1 y 6 días", () => {
+    const forgot = sm2.rate(learned, false);
+    const again = sm2.rate(forgot, true);
+
+    // Como la racha volvió a 0, los dos primeros aciertos usan los intervalos fijos otra vez
+    expect(again.interval).toBe(1);
+    expect(sm2.rate(again, true).interval).toBe(6);
+  });
+
+  it("los intervalos crecen más lento tras varios olvidos", () => {
+    let hard = SM2.fresh();
+
+    // Cinco olvidos seguidos bajan la facilidad hasta el piso de 1.3
+    for (let i = 0; i < 5; i++) hard = sm2.rate(hard, false);
+    expect(hard.ease_factor).toBe(SM2.MIN_EASE);
+
+    //Después se recuerda tres veces, igual que una tarjeta que nunca falló
+    for (let i = 0; i < 3; i++) hard = sm2.rate(hard, true);
+    const third = sm2.rate(sm2.rate(sm2.rate(SM2.fresh(), true), true), true);
+
+    // Al tercer acierto la difícil llega a 6 * 1.3 = 8 días, la fácil a 6 * 2.5 = 15
+    expect(hard.interval).toBeLessThan(third.interval);
+  });
+});
+
+describe("utilidades", () => {
+  it("preview muestra el intervalo de cada gesto", () => {
+    const p = sm2.preview(SM2.fresh());
+
+    //Para una tarjeta nueva, recordar da 1 día y olvidar la deja para hoy
+    expect(p).toEqual({ remembered: 1, forgot: 0 });
+  });
+
+  it("stats y nextDueDate resumen un mazo", () => {
+    // Mazo de prueba: una nueva, una que vence mañana, una en seis días y una olvidada hoy
+    const fresh = SM2.fresh();
+    const tomorrow = sm2.rate(SM2.fresh(), true);
+    const inSixDays = sm2.rate(tomorrow, true);
+    const forgot = sm2.rate(SM2.fresh(), false);
+
+    // Pendientes son la nueva y la olvidada, nueva solo la que nunca se practicó
+    const stats = sm2.stats([fresh, tomorrow, inSixDays, forgot]);
+    expect(stats).toEqual({ total: 4, due: 2, fresh: 1 });
+
+    // De las que aún no vencen, la más cercana es la de mañana
+    expect(
+      sm2.nextDueDate([fresh, tomorrow, inSixDays, forgot])?.toISOString()
+    ).toBe(tomorrow.due);
+
+    //Si todas están pendientes no hay próxima fecha que mostrar
+    expect(sm2.nextDueDate([fresh, forgot])).toBeNull();
+  });
+
+  it("una fecha inválida se trata como pendiente", () => {
+    // Se simula un dato corrupto en la base de datos sobre una tarjeta ya practicada
+    const broken = { ...sm2.rate(SM2.fresh(), true), due: "no-es-fecha" };
+
+    //Mejor mostrarla de más que perderla por un dato ilegible
+    expect(sm2.isDue(broken)).toBe(true);
+  });
+});
