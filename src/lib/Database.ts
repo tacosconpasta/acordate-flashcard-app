@@ -6,6 +6,7 @@ import {
 import type { NewUser, User } from "../models/User";
 import type { NewDeck, Deck, DeckWithCards } from "../models/Deck";
 import type { NewCard, Card } from "../models/Card";
+import { SM2 } from "./SM2";
 
 const DB_NAME = "acordate";
 
@@ -173,14 +174,22 @@ export async function getDeckWithCards(
 
 export async function insertCard(card: NewCard): Promise<number> {
   const conn = await getDb();
+  const schedule = { ...SM2.fresh(), ...card };
   const result = await conn.run(
-    "INSERT INTO card (front, back, description, last_practiced, deck_id) VALUES (?, ?, ?, ?, ?)",
+    `INSERT INTO card
+       (front, back, description, last_practiced, deck_id,
+        interval, repetitions, ease_factor, due)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       card.front,
       card.back,
       card.description,
-      card.last_practiced ?? null,
+      schedule.last_practiced ?? null,
       card.deck_id,
+      schedule.interval,
+      schedule.repetitions,
+      schedule.ease_factor,
+      schedule.due ?? null,
     ]
   );
   return result.changes?.lastId ?? -1;
@@ -203,12 +212,19 @@ export async function getCardById(cardId: number): Promise<Card | null> {
 export async function updateCard(card: Card): Promise<void> {
   const conn = await getDb();
   await conn.run(
-    "UPDATE card SET front = ?, back = ?, description = ?, last_practiced = ? WHERE id = ?",
+    `UPDATE card
+        SET front = ?, back = ?, description = ?, last_practiced = ?,
+            interval = ?, repetitions = ?, ease_factor = ?, due = ?
+      WHERE id = ?`,
     [
       card.front,
       card.back,
       card.description,
       card.last_practiced ?? null,
+      card.interval,
+      card.repetitions,
+      card.ease_factor,
+      card.due ?? null,
       card.id,
     ]
   );
