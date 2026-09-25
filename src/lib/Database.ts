@@ -33,7 +33,11 @@ const CREATE_TABLES = `
     back           TEXT    NOT NULL,
     description    TEXT    NOT NULL DEFAULT '',
     last_practiced TEXT,
-    deck_id        INTEGER NOT NULL REFERENCES deck(id) ON DELETE CASCADE
+    deck_id        INTEGER NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
+    interval       INTEGER NOT NULL DEFAULT 0,
+    repetitions    INTEGER NOT NULL DEFAULT 0,
+    ease_factor    REAL    NOT NULL DEFAULT 2.5,
+    due            TEXT
   );
 `;
 
