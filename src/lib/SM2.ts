@@ -13,21 +13,7 @@
  * Referencia: https://super-memory.com/english/ol/sm2.htm
  */
 
-//Campos de programación que se guardan en cada tarjeta
-export interface CardProgress {
-  interval: number; //días hasta el próximo repaso (0 = hoy mismo)
-  repetitions: number; //aciertos seguidos desde el último olvido
-  ease_factor: number; //facilidad de la tarjeta, empieza en 2.5 y nunca baja de 1.3
-  due: string | null; //fecha ISO del próximo repaso, null si nunca se ha estudiado
-  last_practiced: string | null; //fecha ISO del último repaso
-}
-
-// Resumen de un grupo de tarjetas, para mostrar en los listados
-export interface CardsProgressSummary {
-  total: number;
-  due: number; //pendientes ahora, incluye las nuevas
-  fresh: number; //nuevas, nunca repasadas
-}
+import type { CardProgress, CardsProgressSummary } from "../models/progress";
 
 const MS_PER_DAY = 86_400_000;
 
