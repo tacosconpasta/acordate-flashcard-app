@@ -235,6 +235,58 @@ export async function deleteCard(cardId: number): Promise<void> {
   await conn.run("DELETE FROM card WHERE id = ?", [cardId]);
 }
 
+// Repaso espaciado (SM-2)
+
+/**
+ * Tarjetas pendientes de un mazo: las que ya vencieron, ordenadas por fecha,
+ * seguidas de las nuevas en orden de creación.
+ */
+export async function getDueCards(
+  deckId: number,
+  now: Date = new Date()
+): Promise<Card[]> {
+  const conn = await getDb();
+  const result = await conn.query(
+    `SELECT * FROM card
+      WHERE deck_id = ?
+        AND (due IS NULL OR due <= ?)
+      ORDER BY (due IS NULL) ASC, due ASC, id ASC`,
+    [deckId, now.toISOString()]
+  );
+  return (result.values ?? []) as Card[];
+}
+
+/**
+ * Califica una tarjeta: calcula los nuevos campos con SM-2, los guarda y
+ * registra la práctica en el mazo. Devuelve la tarjeta actualizada.
+ */
+export async function reviewCard(
+  card: Card,
+  remembered: boolean,
+  now: Date = new Date()
+): Promise<Card> {
+  const conn = await getDb();
+  const next: Card = { ...card, ...new SM2(now).rate(card, remembered) };
+  await conn.run(
+    `UPDATE card
+        SET last_practiced = ?, interval = ?, repetitions = ?, ease_factor = ?, due = ?
+      WHERE id = ?`,
+    [
+      next.last_practiced,
+      next.interval,
+      next.repetitions,
+      next.ease_factor,
+      next.due,
+      next.id,
+    ]
+  );
+  await conn.run("UPDATE deck SET last_practiced = ? WHERE id = ?", [
+    now.toISOString(),
+    card.deck_id,
+  ]);
+  return next;
+}
+
 export async function seedExampleData(userId: number): Promise<void> {
   const conn = await getDb();
 

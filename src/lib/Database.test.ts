@@ -12,7 +12,7 @@ import type { Card, NewCard } from "../models/Card";
 
 //Registro de lo que la conexión simulada recibe, compartido con el mock
 type Call = { kind: "execute" | "query" | "run"; sql: string; params?: unknown[] };
-const state = vi.hoisted(() => ({ calls: [] as Call[] }));
+const state = vi.hoisted(() => ({ calls: [] as Call[], rows: [] as unknown[] }));
 
 // El mock se declara con vi.mock para que reemplace al plugin antes de importar Database
 vi.mock("@capacitor-community/sqlite", () => {
@@ -24,7 +24,9 @@ vi.mock("@capacitor-community/sqlite", () => {
     },
     query: async (sql: string, params?: unknown[]) => {
       state.calls.push({ kind: "query", sql, params });
-      return { values: [] };
+
+      //Los SELECT devuelven las filas que cada prueba haya preparado
+      return { values: sql.trim().startsWith("SELECT") ? state.rows : [] };
     },
     run: async (sql: string, params?: unknown[]) => {
       state.calls.push({ kind: "run", sql, params });
@@ -56,15 +58,43 @@ let db: Database;
 
 beforeEach(async () => {
   state.calls = [];
+  state.rows = [];
   vi.resetModules();
   db = await import("./Database");
 });
 
+//Sentencias run ejecutadas hasta el momento, en orden
+function runs(): Call[] {
+  return state.calls.filter((c) => c.kind === "run");
+}
+
 // Última sentencia run, que es la que cada función de escritura ejecuta
 function lastRun(): Call {
-  const runs = state.calls.filter((c) => c.kind === "run");
-  return runs[runs.length - 1];
+  return runs()[runs().length - 1];
 }
+
+//Última consulta query, para revisar el SELECT que se armó
+function lastQuery(): Call {
+  const queries = state.calls.filter((c) => c.kind === "query");
+  return queries[queries.length - 1];
+}
+
+// Fecha fija para las pruebas que dependen del reloj
+const NOW = new Date("2026-03-10T15:00:00");
+
+//Tarjeta ya practicada una vez, punto de partida para calificarla de nuevo
+const PRACTICED: Card = {
+  id: 12,
+  front: "perro",
+  back: "dog",
+  description: "",
+  deck_id: 4,
+  interval: 1,
+  repetitions: 1,
+  ease_factor: 2.5,
+  due: "2026-03-11T00:00:00.000Z",
+  last_practiced: "2026-03-10T15:00:00.000Z",
+};
 
 describe("insertCard", () => {
   it("guarda el progreso inicial cuando solo recibe contenido", async () => {
@@ -148,5 +178,62 @@ describe("updateCard", () => {
       "2026-03-11T00:00:00.000Z",
       12,
     ]);
+  });
+});
+
+describe("getDueCards", () => {
+  it("pide las vencidas y las nuevas del mazo, ordenadas", async () => {
+    state.rows = [{ id: 1 }, { id: 2 }];
+    const cards = await db.getDueCards(4, NOW);
+
+    // Se devuelven tal cual las filas que entregó la base
+    expect(cards).toEqual([{ id: 1 }, { id: 2 }]);
+
+    //El filtro incluye las nuevas (due NULL) y las que ya vencieron respecto a now
+    const q = lastQuery();
+    expect(q.sql).toMatch(/WHERE deck_id = \?/);
+    expect(q.sql).toMatch(/due IS NULL OR due <= \?/);
+    expect(q.params).toEqual([4, NOW.toISOString()]);
+
+    // Primero las vencidas por fecha, después las nuevas por orden de creación
+    expect(q.sql).toMatch(/ORDER BY \(due IS NULL\) ASC, due ASC, id ASC/);
+  });
+});
+
+describe("reviewCard", () => {
+  it("guarda el resultado de SM-2 y registra la práctica en el mazo", async () => {
+    const next = await db.reviewCard(PRACTICED, true, NOW);
+
+    //Los campos nuevos son exactamente los que calcula SM2.rate con la misma fecha
+    const expected = new SM2(NOW).rate(PRACTICED, true);
+    expect(next).toEqual({ ...PRACTICED, ...expected });
+
+    // Primera escritura: la tarjeta con su progreso nuevo
+    const [cardRun, deckRun] = runs();
+    expect(cardRun.sql).toMatch(/UPDATE card/);
+    expect(cardRun.params).toEqual([
+      expected.last_practiced,
+      expected.interval,
+      expected.repetitions,
+      expected.ease_factor,
+      expected.due,
+      PRACTICED.id,
+    ]);
+
+    //Segunda escritura: el mazo queda marcado como practicado ahora
+    expect(deckRun.sql).toMatch(/UPDATE deck SET last_practiced/);
+    expect(deckRun.params).toEqual([NOW.toISOString(), PRACTICED.deck_id]);
+  });
+
+  it("al olvidar deja la tarjeta pendiente para la misma sesión", async () => {
+    const next = await db.reviewCard(PRACTICED, false, NOW);
+
+    // Intervalo 0 y racha 0, con la fecha de vencimiento igual a now
+    expect(next.interval).toBe(0);
+    expect(next.repetitions).toBe(0);
+    expect(next.due).toBe(NOW.toISOString());
+
+    //La tarjeta recibida no se modifica, reviewCard devuelve una copia
+    expect(PRACTICED.interval).toBe(1);
   });
 });
