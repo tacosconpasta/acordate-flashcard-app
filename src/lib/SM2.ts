@@ -14,7 +14,7 @@
  */
 
 //Campos de programación que se guardan en cada tarjeta
-export interface ScheduleFields {
+export interface CardProgress {
   interval: number; //días hasta el próximo repaso (0 = hoy mismo)
   repetitions: number; //aciertos seguidos desde el último olvido
   ease_factor: number; //facilidad de la tarjeta, empieza en 2.5 y nunca baja de 1.3
@@ -23,7 +23,7 @@ export interface ScheduleFields {
 }
 
 // Resumen de un grupo de tarjetas, para mostrar en los listados
-export interface ScheduleStats {
+export interface CardsProgressSummary {
   total: number;
   due: number; //pendientes ahora, incluye las nuevas
   fresh: number; //nuevas, nunca repasadas
@@ -48,7 +48,7 @@ export class SM2 {
   constructor(private readonly now: Date = new Date()) {}
 
   // Campos con los que nace una tarjeta que nunca se ha estudiado.
-  static fresh(): ScheduleFields {
+  static fresh(): CardProgress {
     return {
       interval: 0, //sin intervalo todavía, se estudia hoy
       repetitions: 0, //ningún acierto acumulado
@@ -59,7 +59,7 @@ export class SM2 {
   }
 
   /* Una tarjeta es nueva si nunca se ha repasado. */
-  isNew(card: ScheduleFields): boolean {
+  isNew(card: CardProgress): boolean {
     //Basta con revisar si alguna vez se practicó, no hace falta un campo de estado aparte
     return card.last_practiced === null;
   }
@@ -69,7 +69,7 @@ export class SM2 {
    * Si la fecha guardada no se puede leer, se trata como pendiente para no
    * "perder" tarjetas por un dato corrupto.
    */
-  isDue(card: ScheduleFields): boolean {
+  isDue(card: CardProgress): boolean {
     // Las nuevas siempre están pendientes, igual que una tarjeta sin fecha
     if (this.isNew(card) || card.due === null) return true;
 
@@ -93,7 +93,7 @@ export class SM2 {
    *    tarjeta se repite en la misma sesión hasta que se recuerde.
    * 4. Se calcula la fecha de vencimiento a partir del intervalo.
    */
-  rate(card: ScheduleFields, remembered: boolean): ScheduleFields {
+  rate(card: CardProgress, remembered: boolean): CardProgress {
     // Se traduce el gesto a la escala 0 a 5 que espera SM-2
     const quality = remembered ? SM2.QUALITY_REMEMBERED : SM2.QUALITY_FORGOT;
 
@@ -128,7 +128,7 @@ export class SM2 {
    * Intervalo en días que obtendría la tarjeta con cada gesto.
    * Sirve para mostrar una pista debajo de la tarjeta antes de calificar.
    */
-  preview(card: ScheduleFields): { remembered: number; forgot: number } {
+  preview(card: CardProgress): { remembered: number; forgot: number } {
     //Como rate no modifica la tarjeta, se puede "simular" cada gesto sin guardar nada
     return {
       remembered: this.rate(card, true).interval,
@@ -137,8 +137,8 @@ export class SM2 {
   }
 
   /** Cuenta cuántas tarjetas hay en total, cuántas están pendientes y cuántas son nuevas. */
-  stats(cards: ScheduleFields[]): ScheduleStats {
-    const stats: ScheduleStats = { total: cards.length, due: 0, fresh: 0 };
+  stats(cards: CardProgress[]): CardsProgressSummary {
+    const stats: CardsProgressSummary = { total: cards.length, due: 0, fresh: 0 };
 
     for (const card of cards) {
       if (this.isDue(card)) stats.due++; // las nuevas también cuentan como pendientes
@@ -152,7 +152,7 @@ export class SM2 {
    * Fecha del próximo repaso más cercano entre las tarjetas que todavía no
    * están pendientes. Devuelve null si no hay ninguna programada.
    */
-  nextDueDate(cards: ScheduleFields[]): Date | null {
+  nextDueDate(cards: CardProgress[]): Date | null {
     let closest: number | null = null; //se guarda en milisegundos para comparar fácil
 
     for (const card of cards) {
