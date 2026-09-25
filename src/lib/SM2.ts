@@ -22,6 +22,13 @@ export interface ScheduleFields {
   last_practiced: string | null; //fecha ISO del último repaso
 }
 
+// Resumen de un grupo de tarjetas, para mostrar en los listados
+export interface ScheduleStats {
+  total: number;
+  due: number; //pendientes ahora, incluye las nuevas
+  fresh: number; //nuevas, nunca repasadas
+}
+
 const MS_PER_DAY = 86_400_000;
 
 export class SM2 {
@@ -127,6 +134,39 @@ export class SM2 {
       remembered: this.rate(card, true).interval,
       forgot: this.rate(card, false).interval, // siempre 0, la tarjeta se repite hoy
     };
+  }
+
+  /** Cuenta cuántas tarjetas hay en total, cuántas están pendientes y cuántas son nuevas. */
+  stats(cards: ScheduleFields[]): ScheduleStats {
+    const stats: ScheduleStats = { total: cards.length, due: 0, fresh: 0 };
+
+    for (const card of cards) {
+      if (this.isDue(card)) stats.due++; // las nuevas también cuentan como pendientes
+      if (this.isNew(card)) stats.fresh++; //y además se cuentan aparte para mostrar "N nuevas"
+    }
+
+    return stats;
+  }
+
+  /**
+   * Fecha del próximo repaso más cercano entre las tarjetas que todavía no
+   * están pendientes. Devuelve null si no hay ninguna programada.
+   */
+  nextDueDate(cards: ScheduleFields[]): Date | null {
+    let closest: number | null = null; //se guarda en milisegundos para comparar fácil
+
+    for (const card of cards) {
+      // Las pendientes no interesan aquí, se busca la próxima que vencerá
+      if (this.isDue(card) || card.due === null) continue;
+
+      const time = new Date(card.due).getTime();
+      if (Number.isNaN(time)) continue; //fecha corrupta, se ignora
+
+      //Se queda con la fecha más pequeña, es decir la más cercana
+      if (closest === null || time < closest) closest = time;
+    }
+
+    return closest === null ? null : new Date(closest);
   }
 
   /**
