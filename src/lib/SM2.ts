@@ -75,6 +75,61 @@ export class SM2 {
   }
 
   /**
+   * Calcula los nuevos campos de una tarjeta después de calificarla.
+   * No modifica la tarjeta recibida, devuelve una copia actualizada.
+   *
+   * Pasos del algoritmo:
+   * 1. Se ajusta la facilidad según la calidad de la respuesta.
+   * 2. Si se recordó, el intervalo crece: 1 día, luego 6, luego el intervalo
+   *    anterior multiplicado por la facilidad. El conteo de aciertos sube.
+   * 3. Si se olvidó, el conteo vuelve a 0 y el intervalo a 0 días, así la
+   *    tarjeta se repite en la misma sesión hasta que se recuerde.
+   * 4. Se calcula la fecha de vencimiento a partir del intervalo.
+   */
+  rate(card: ScheduleFields, remembered: boolean): ScheduleFields {
+    // Se traduce el gesto a la escala 0 a 5 que espera SM-2
+    const quality = remembered ? SM2.QUALITY_REMEMBERED : SM2.QUALITY_FORGOT;
+
+    //La facilidad se recalcula siempre, se haya acertado o no
+    const ease = this.nextEase(card.ease_factor, quality);
+
+    let repetitions: number;
+    let interval: number;
+
+    if (remembered) {
+      repetitions = card.repetitions + 1; //un acierto más en la racha
+
+      // El intervalo se calcula con el conteo anterior, por eso se pasa card.repetitions y no repetitions
+      interval = this.nextInterval(card.repetitions, card.interval, ease);
+    } else {
+      //Al olvidar se empieza de nuevo, pero la facilidad ya bajó, así que los
+      //próximos intervalos crecerán más lento que la primera vez
+      repetitions = 0;
+      interval = 0; //0 días = se repite hoy mismo
+    }
+
+    return {
+      interval,
+      repetitions,
+      ease_factor: ease,
+      due: this.dueDateFor(interval), // la fecha sale del intervalo recién calculado
+      last_practiced: this.now.toISOString(), //a partir de aquí la tarjeta deja de ser nueva
+    };
+  }
+
+  /**
+   * Intervalo en días que obtendría la tarjeta con cada gesto.
+   * Sirve para mostrar una pista debajo de la tarjeta antes de calificar.
+   */
+  preview(card: ScheduleFields): { remembered: number; forgot: number } {
+    //Como rate no modifica la tarjeta, se puede "simular" cada gesto sin guardar nada
+    return {
+      remembered: this.rate(card, true).interval,
+      forgot: this.rate(card, false).interval, // siempre 0, la tarjeta se repite hoy
+    };
+  }
+
+  /**
    * Fórmula original de SM-2 para la facilidad:
    *   EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
    * Con q = 4 la facilidad no cambia, con q = 1 baja 0.54.
