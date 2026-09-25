@@ -22,6 +22,8 @@ export interface ScheduleFields {
   last_practiced: string | null; //fecha ISO del último repaso
 }
 
+const MS_PER_DAY = 86_400_000;
+
 export class SM2 {
   // Constantes del algoritmo
   static readonly INITIAL_EASE = 2.5;
@@ -47,5 +49,79 @@ export class SM2 {
       due: null, // sin fecha: null marca que nunca se ha visto
       last_practiced: null,
     };
+  }
+
+  /* Una tarjeta es nueva si nunca se ha repasado. */
+  isNew(card: ScheduleFields): boolean {
+    //Basta con revisar si alguna vez se practicó, no hace falta un campo de estado aparte
+    return card.last_practiced === null;
+  }
+
+  /**
+   * Una tarjeta está pendiente si es nueva o si su fecha de repaso ya llegó.
+   * Si la fecha guardada no se puede leer, se trata como pendiente para no
+   * "perder" tarjetas por un dato corrupto.
+   */
+  isDue(card: ScheduleFields): boolean {
+    // Las nuevas siempre están pendientes, igual que una tarjeta sin fecha
+    if (this.isNew(card) || card.due === null) return true;
+
+    //Se convierte el texto ISO a milisegundos para poder compararlo
+    const due = new Date(card.due).getTime();
+    if (Number.isNaN(due)) return true; //fecha ilegible, mejor mostrarla que ocultarla
+
+    // Pendiente si la fecha de repaso es ahora o ya pasó
+    return due <= this.now.getTime();
+  }
+
+  /**
+   * Fórmula original de SM-2 para la facilidad:
+   *   EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+   * Con q = 4 la facilidad no cambia, con q = 1 baja 0.54.
+   * Como el constraint original de la fórmula lo específica: bunca se deja bajar EF de 1.3 porque los intervalos crecerían demasiado lento.
+   */
+  private nextEase(ease: number, quality: number): number {
+    const diff = 5 - quality; //qué tan lejos quedó la respuesta de "perfecta"
+
+    // Respuestas perfectas suman 0.1, cada punto por debajo resta cada vez más
+    const next = ease + (0.1 - diff * (0.08 + diff * 0.02));
+
+    return Math.max(next, SM2.MIN_EASE); //Maximo entre el EF y la constante de 1.3
+  }
+
+  /**
+   * Intervalo siguiente cuando la respuesta fue correcta:
+   *   primer acierto -> 1 día
+   *   segundo acierto -> 6 días
+   *   después -> intervalo anterior * facilidad, redondeado
+   */
+  private nextInterval(
+    repetitions: number,
+    interval: number,
+    ease: number
+  ): number {
+    /*Valores de intervalos recomendados por el algoritmo original*/
+    if (repetitions === 0) return 1; //primer acierto: se ve mañana
+    if (repetitions === 1) return 6; //segundo acierto: se ve en una semana aprox.
+
+    // A partir del tercero el intervalo crece multiplicando por la facilidad;
+    // se redondea porque los intervalos se manejan en días enteros
+    return Math.min(Math.round(interval * ease), SM2.MAX_INTERVAL);
+  }
+
+  /**
+   * Convierte un intervalo en días a una fecha de vencimiento.
+   * Un intervalo de 0 vence ahora mismo (la tarjeta se repite en la sesión).
+   * Para intervalos en días la fecha se fija a la medianoche, así una tarjeta
+   * de 1 día aparece a la mañana siguiente y no 24 horas después.
+   */
+  private dueDateFor(interval: number): string {
+    if (interval <= 0) return this.now.toISOString(); //vence ya, sigue pendiente en la sesión
+
+    // Se suman los días en milisegundos a la fecha actual
+    const due = new Date(this.now.getTime() + interval * MS_PER_DAY);
+    due.setHours(0, 0, 0, 0); //se recorta la hora para que venza al empezar ese día
+
+    return due.toISOString(); // se guarda como texto ISO, que SQLite puede ordenar y comparar
   }
 }
