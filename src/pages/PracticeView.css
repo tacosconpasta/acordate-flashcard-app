@@ -175,9 +175,47 @@
   100% { transform: scale(1); }
 }
 
+/* Racha de aciertos sobre la tarjeta: entra con un salto; en los hitos es más grande */
+.practice-streak {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -52px;
+  text-align: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ion-color-success);
+  pointer-events: none;
+  animation: practice-combo-in 380ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.practice-streak.is-milestone {
+  font-size: 1.8rem;
+}
+@keyframes practice-combo-in {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+/* Hito de racha: el salto del check es mayor y el anillo más grueso */
+.practice-bar-icon.is-milestone .practice-bar-icon__copy--live {
+  animation: practice-pop-strong 700ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.practice-bar-icon.is-milestone::after {
+  border-width: 3px;
+  animation-duration: 900ms;
+}
+@keyframes practice-pop-strong {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.9); }
+  100% { transform: scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .practice-lift,
-  .practice-lift.is-entering {
+  .practice-lift.is-entering,
+  .practice-streak {
     animation: none;
     transition: none;
   }

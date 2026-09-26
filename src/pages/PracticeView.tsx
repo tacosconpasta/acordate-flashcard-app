@@ -12,7 +12,7 @@ import {
   checkmarkCircleOutline,
   closeCircleOutline,
 } from "ionicons/icons";
-import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 import { useHistory, useParams } from "react-router-dom";
 import { getCards, getDueCards, reviewCard } from "../lib/Database";
 import {
@@ -49,6 +49,9 @@ const HIT_DURATION = 720;
 // Cuánto crece el contador de la barra inferior cuando la tarjeta llega a su lado
 const ICON_GROW = 0.9;
 
+//Cada cuántos aciertos seguidos la celebración es mayor
+const COMBO_MILESTONE = 3;
+
 const FACE_BASE: React.CSSProperties = {
   position: "absolute",
   inset: 0,
@@ -76,6 +79,7 @@ const PracticeView: React.FC = () => {
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState<SessionResults>({ remembered: 0, forgotten: 0 });
   const [toast, setToast] = useState<string | null>(null);
+  const [streak, setStreak] = useState(0);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const glowLeftRef = useRef<HTMLDivElement>(null);
@@ -90,6 +94,7 @@ const PracticeView: React.FC = () => {
   const liveNumRightRef = useRef<HTMLSpanElement>(null);
   const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liftRef = useRef<HTMLDivElement>(null);
+  const streakRef = useRef(0);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const cardCenterX = useRef(0); //centro de la tarjeta en pantalla al empezar el arrastre
   const velBuf = useRef<Sample[]>([]);
@@ -103,6 +108,7 @@ const PracticeView: React.FC = () => {
   useEffect(() => { flippedRef.current = flipped; }, [flipped]);
   useEffect(() => { indexRef.current = index; }, [index]);
   useEffect(() => { cardsRef.current = cards; }, [cards]);
+  useEffect(() => { streakRef.current = streak; }, [streak]);
 
   /**
    * Arma la cola de la sesión: lo pendiente en orden aleatorio, y si no hay
@@ -113,7 +119,10 @@ const PracticeView: React.FC = () => {
     setLoading(true);
     setFlipped(false);
     animateFlip.current = false;
-    if (fresh) setResults({ remembered: 0, forgotten: 0 });
+    if (fresh) {
+      setResults({ remembered: 0, forgotten: 0 });
+      setStreak(0);
+    }
     try {
       const deckId = Number(id);
       const all = await getCards(deckId);
@@ -171,17 +180,23 @@ const PracticeView: React.FC = () => {
     if (countLeftRef.current) countLeftRef.current.style.transform = pose(left);
   }
 
-  //Recompensa de acierto: salto del check, anillo, destello del resplandor, salto del contador y una vibración ligera
-  function celebrate() {
+  /**
+   * Recompensa de acierto: salto del check, anillo, destello del resplandor y
+   * háptico. En los hitos de racha todo es más fuerte.
+   */
+  function celebrate(newStreak: number) {
     const side = iconRightRef.current;
     const glow = glowRightRef.current;
     if (!side || !glow) return;
 
+    const milestone = newStreak > 0 && newStreak % COMBO_MILESTONE === 0;
+
     // Reiniciar las clases permite repetir la animación aunque el golpe anterior no haya terminado
-    side.classList.remove("is-hit");
+    side.classList.remove("is-hit", "is-milestone");
     glow.classList.remove("is-hit");
     void side.offsetWidth;
     side.classList.add("is-hit");
+    if (milestone) side.classList.add("is-milestone");
     glow.classList.add("is-hit");
 
     const count = countRightRef.current;
@@ -191,11 +206,15 @@ const PracticeView: React.FC = () => {
       count.classList.add("is-bumped");
     }
 
-    Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+    //Háptico ligero en un acierto normal y de notificación en los hitos
+    const buzz = milestone
+      ? Haptics.notification({ type: NotificationType.Success })
+      : Haptics.impact({ style: ImpactStyle.Light });
+    buzz.catch(() => {});
 
     if (hitTimer.current) clearTimeout(hitTimer.current);
     hitTimer.current = setTimeout(() => {
-      side.classList.remove("is-hit");
+      side.classList.remove("is-hit", "is-milestone");
       glow.classList.remove("is-hit");
       count?.classList.remove("is-bumped");
     }, HIT_DURATION);
@@ -289,7 +308,12 @@ const PracticeView: React.FC = () => {
 
     // El lado elegido queda encendido del todo durante el vuelo
     showSides(remembered ? 1 : -1);
-    if (remembered) celebrate();
+
+    //La racha cuenta aciertos seguidos y se corta sin ceremonia al olvidar
+    const newStreak = remembered ? streakRef.current + 1 : 0;
+    streakRef.current = newStreak;
+    setStreak(newStreak);
+    if (remembered) celebrate(newStreak);
 
     flyAway(end, async () => {
         let updated = card;
@@ -526,6 +550,16 @@ const PracticeView: React.FC = () => {
             <IonSpinner name="crescent" />
           ) : (
             <div style={{ position: "relative", width: "100%", maxWidth: 400 }}>
+              {/* Racha de aciertos, centrada sobre la tarjeta; se vuelve a montar para repetir la entrada */}
+              {streak >= 2 && (
+                <div
+                  key={streak}
+                  className={`practice-streak${streak % COMBO_MILESTONE === 0 ? " is-milestone" : ""}`}
+                >
+                  ×{streak}
+                </div>
+              )}
+
               {/* Siguiente tarjeta asomando detrás */}
               {next && (
                 <div style={{
