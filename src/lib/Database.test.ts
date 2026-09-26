@@ -8,6 +8,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SM2 } from "./SM2";
+import { SCHEMA_VERSION } from "./Database";
 import type { Card, NewCard } from "../models/Card";
 
 //Registro de lo que la conexión simulada recibe, compartido con el mock
@@ -15,6 +16,7 @@ type Call = { kind: "execute" | "query" | "run"; sql: string; params?: unknown[]
 const state = vi.hoisted(() => ({
   calls: [] as Call[],
   tables: {} as Record<string, unknown[]>,
+  userVersion: 0,
 }));
 
 // El mock se declara con vi.mock para que reemplace al plugin antes de importar Database
@@ -27,6 +29,11 @@ vi.mock("@capacitor-community/sqlite", () => {
     },
     query: async (sql: string, params?: unknown[]) => {
       state.calls.push({ kind: "query", sql, params });
+
+      // La versión de esquema guardada en la base simulada
+      if (sql === "PRAGMA user_version") {
+        return { values: [{ user_version: state.userVersion }] };
+      }
 
       //Los SELECT devuelven las filas que cada prueba haya preparado para esa tabla
       const table = /FROM (\w+)/.exec(sql)?.[1];
@@ -63,6 +70,7 @@ let db: Database;
 beforeEach(async () => {
   state.calls = [];
   state.tables = {};
+  state.userVersion = SCHEMA_VERSION;
   vi.resetModules();
   db = await import("./Database");
 });
@@ -99,6 +107,37 @@ const PRACTICED: Card = {
   due: "2026-03-11T00:00:00.000Z",
   last_practiced: "2026-03-10T15:00:00.000Z",
 };
+
+// Sentencias execute que contienen el texto dado
+function executes(text: string): string[] {
+  return state.calls
+    .filter((c) => c.kind === "execute" && c.sql.includes(text))
+    .map((c) => c.sql);
+}
+
+describe("esquema", () => {
+  it("crea las tablas sin borrar nada cuando la versión coincide", async () => {
+    await db.initDatabase();
+
+    expect(executes("CREATE TABLE")).toHaveLength(1);
+    expect(executes("DROP TABLE")).toEqual([]);
+    expect(executes("PRAGMA user_version =")).toEqual([]);
+  });
+
+  it("vacía y vuelve a crear la base cuando la versión es otra", async () => {
+    //Una base creada antes de las columnas de SM-2 quedó con la versión 0
+    state.userVersion = 0;
+    vi.resetModules();
+    db = await import("./Database");
+    await db.initDatabase();
+
+    // Primero se borran las tablas, luego se crean, y al final se marca la versión nueva
+    const order = state.calls.filter((c) => c.kind === "execute").map((c) => c.sql);
+    expect(order[0]).toMatch(/DROP TABLE IF EXISTS card/);
+    expect(order[1]).toMatch(/CREATE TABLE IF NOT EXISTS user/);
+    expect(order[2]).toBe(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  });
+});
 
 describe("insertCard", () => {
   it("guarda el progreso inicial cuando solo recibe contenido", async () => {

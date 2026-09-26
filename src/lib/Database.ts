@@ -10,6 +10,10 @@ import { SM2 } from "./SM2";
 
 const DB_NAME = "acordate";
 
+// Versión del esquema. Se sube cada vez que cambian las tablas: una base con
+// otra versión se vacía y se vuelve a crear. No hay migración de datos.
+export const SCHEMA_VERSION = 2;
+
 const CREATE_TABLES = `
   PRAGMA foreign_keys = ON;
 
@@ -42,6 +46,26 @@ const CREATE_TABLES = `
   );
 `;
 
+//Orden inverso a las claves foráneas, para que ningún DROP falle por dependencias
+const DROP_TABLES = `
+  DROP TABLE IF EXISTS card;
+  DROP TABLE IF EXISTS deck;
+  DROP TABLE IF EXISTS user;
+`;
+
+// Deja la base en el esquema actual: la crea si es nueva y la vacía si es de otra versión
+async function ensureSchema(conn: SQLiteDBConnection): Promise<void> {
+  //SQLite guarda un entero libre por base de datos, aquí se usa como versión del esquema
+  const result = await conn.query("PRAGMA user_version");
+  const version = Number(result.values?.[0]?.user_version ?? 0);
+  const outdated = version !== SCHEMA_VERSION;
+
+  // Una base recién creada tiene versión 0 y no tiene tablas, así que borrar no hace nada
+  if (outdated) await conn.execute(DROP_TABLES);
+  await conn.execute(CREATE_TABLES);
+  if (outdated) await conn.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+}
+
 const sqlite = new SQLiteConnection(CapacitorSQLite);
 let dbPromise: Promise<SQLiteDBConnection> | null = null;
 
@@ -63,7 +87,7 @@ async function openDb(): Promise<SQLiteDBConnection> {
   }
 
   await conn.open();
-  await conn.execute(CREATE_TABLES);
+  await ensureSchema(conn);
   return conn;
 }
 
