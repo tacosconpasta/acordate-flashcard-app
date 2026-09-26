@@ -1,16 +1,18 @@
 /**
- * Matemática del gesto de deslizar en la vista de práctica.
+ * Matemática del gesto de lanzar en la vista de práctica.
  *
- * Vive fuera del componente para poder probarla con números: cuánto
- * resplandor mostrar según el arrastre, si un gesto cuenta como toque, y si
- * al soltar la tarjeta se califica o vuelve a su sitio.
+ * Vive fuera del componente para poder probarla con números: si un gesto es
+ * un toque, si cuenta como lanzamiento, hasta dónde vuela la tarjeta y de qué
+ * lado de la pantalla cae. El lanzamiento es libre: cualquier dirección vale,
+ * y solo importa si la tarjeta termina a la derecha o a la izquierda de la
+ * mitad de la pantalla.
  */
 
-// Píxeles de arrastre a partir de los cuales soltar califica la tarjeta
-export const SWIPE_DISTANCE = 120;
+// Píxeles de arrastre a partir de los cuales soltar cuenta como lanzamiento
+export const THROW_DISTANCE = 120;
 
-//Velocidad en px/ms a partir de la cual un lanzamiento califica aunque sea corto
-export const SWIPE_SPEED = 0.45;
+//Velocidad en px/ms a partir de la cual un gesto corto también cuenta como lanzamiento
+export const THROW_SPEED = 0.45;
 
 // Píxeles iniciales sin respuesta visual, para que un toque torpe no encienda nada
 export const DEAD_ZONE = 12;
@@ -19,7 +21,10 @@ export const DEAD_ZONE = 12;
 export const TAP_DISTANCE = 10;
 export const TAP_SPEED = 0.3;
 
-export type SwipeDirection = "right" | "left" | "none";
+// Duración del vuelo en ms, la misma que usa la transición CSS de la tarjeta
+export const FLY_DURATION = 400;
+
+export type Side = "right" | "left";
 
 export interface Sample {
   x: number;
@@ -27,18 +32,23 @@ export interface Sample {
   t: number;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 /**
  * Cuánto se acerca la tarjeta a un lado, de -1 (izquierda) a 1 (derecha).
  * Dentro de la zona muerta es 0. Después crece con una curva cuadrática, así
  * los primeros milímetros casi no se notan y el resplandor se vuelve evidente
- * solo cerca del umbral de calificar.
+ * solo cerca del umbral de lanzamiento.
  */
 export function swipeProgress(dx: number): number {
   const distance = Math.abs(dx) - DEAD_ZONE;
   if (distance <= 0) return 0;
 
   // Fracción del recorrido entre la zona muerta y el umbral, con tope en 1
-  const linear = Math.min(distance / (SWIPE_DISTANCE - DEAD_ZONE), 1);
+  const linear = Math.min(distance / (THROW_DISTANCE - DEAD_ZONE), 1);
 
   //Elevar al cuadrado suaviza la entrada sin cambiar los extremos 0 y 1
   return Math.sign(dx) * linear * linear;
@@ -62,22 +72,28 @@ export function isTap(distance: number, speed: number): boolean {
   return distance < TAP_DISTANCE && speed < TAP_SPEED;
 }
 
+//Un lanzamiento es un gesto largo, o uno corto pero rápido; lo demás vuelve a su sitio
+export function isThrow(distance: number, speed: number): boolean {
+  return distance > THROW_DISTANCE || speed > THROW_SPEED;
+}
+
 /**
- * Decide qué pasa al soltar la tarjeta con la respuesta visible.
- * Se califica si el gesto es más horizontal que vertical y además llegó al
- * umbral de distancia o fue un lanzamiento rápido en horizontal.
+ * Punto donde termina la tarjeta después del vuelo, relativo a donde empezó.
+ * Con velocidad se prolonga el gesto en esa dirección; sin velocidad se
+ * empuja lejos en la dirección del arrastre para que salga de pantalla.
  */
-export function decideSwipe(dx: number, dy: number, vx: number, vy: number): SwipeDirection {
-  //Un arrastre que se fue más hacia arriba o abajo que hacia un lado no califica
-  const horizontal = Math.abs(dx) > Math.abs(dy);
-  if (!horizontal) return "none";
-
+export function flightEnd(dx: number, dy: number, vx: number, vy: number): Point {
   const speed = Math.sqrt(vx * vx + vy * vy);
+  if (speed > 0.05) {
+    return { x: dx + vx * FLY_DURATION * 1.4, y: dy + vy * FLY_DURATION * 1.4 };
+  }
 
-  // Dos formas de confirmar: arrastrar lejos, o lanzar rápido en horizontal
-  const farEnough = Math.abs(dx) > SWIPE_DISTANCE;
-  const fastEnough = speed > SWIPE_SPEED && Math.abs(vx) > Math.abs(vy);
-  if (!farEnough && !fastEnough) return "none";
+  // Sin velocidad: 700 px en la dirección del arrastre bastan para cualquier pantalla
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  return { x: (dx / len) * 700, y: (dy / len) * 700 };
+}
 
-  return dx > 0 ? "right" : "left";
+// De qué lado cae la tarjeta: derecha si su centro queda más allá de la mitad de la pantalla
+export function landingSide(centerX: number, screenWidth: number): Side {
+  return centerX > screenWidth / 2 ? "right" : "left";
 }

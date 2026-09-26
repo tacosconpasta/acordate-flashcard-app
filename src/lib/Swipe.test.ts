@@ -1,14 +1,18 @@
 /**
- * Pruebas de la matemática del gesto de deslizar.
+ * Pruebas de la matemática del gesto de lanzar.
  * Son números puros: no hay puntero, tarjeta ni DOM.
  */
 
 import { describe, expect, it } from "vitest";
 import {
   DEAD_ZONE,
-  SWIPE_DISTANCE,
-  decideSwipe,
+  FLY_DURATION,
+  THROW_DISTANCE,
+  THROW_SPEED,
+  flightEnd,
   isTap,
+  isThrow,
+  landingSide,
   swipeProgress,
   velocity,
 } from "./Swipe";
@@ -23,12 +27,12 @@ describe("swipeProgress", () => {
   });
 
   it("llega a 1 en el umbral y no pasa de ahí", () => {
-    expect(swipeProgress(SWIPE_DISTANCE)).toBe(1);
-    expect(swipeProgress(SWIPE_DISTANCE * 3)).toBe(1);
+    expect(swipeProgress(THROW_DISTANCE)).toBe(1);
+    expect(swipeProgress(THROW_DISTANCE * 3)).toBe(1);
   });
 
   it("es negativo hacia la izquierda y simétrico", () => {
-    expect(swipeProgress(-SWIPE_DISTANCE)).toBe(-1);
+    expect(swipeProgress(-THROW_DISTANCE)).toBe(-1);
 
     // Misma magnitud a ambos lados para cualquier distancia
     expect(swipeProgress(-70)).toBeCloseTo(-swipeProgress(70), 10);
@@ -36,7 +40,7 @@ describe("swipeProgress", () => {
 
   it("crece despacio al principio y rápido cerca del umbral", () => {
     //A mitad del recorrido la curva cuadrática da 0.25, no 0.5
-    const half = DEAD_ZONE + (SWIPE_DISTANCE - DEAD_ZONE) / 2;
+    const half = DEAD_ZONE + (THROW_DISTANCE - DEAD_ZONE) / 2;
     expect(swipeProgress(half)).toBeCloseTo(0.25, 10);
 
     // Y siempre va en aumento
@@ -79,27 +83,49 @@ describe("isTap", () => {
   });
 });
 
-describe("decideSwipe", () => {
-  it("califica al soltar más allá del umbral", () => {
-    expect(decideSwipe(SWIPE_DISTANCE + 1, 10, 0, 0)).toBe("right");
-    expect(decideSwipe(-(SWIPE_DISTANCE + 1), 10, 0, 0)).toBe("left");
+describe("isThrow", () => {
+  it("acepta un arrastre largo aunque se suelte despacio", () => {
+    expect(isThrow(THROW_DISTANCE + 1, 0)).toBe(true);
   });
 
-  it("vuelve a su sitio si el arrastre fue corto", () => {
-    expect(decideSwipe(60, 5, 0.1, 0)).toBe("none");
+  it("acepta un gesto corto si fue rápido", () => {
+    expect(isThrow(30, THROW_SPEED + 0.1)).toBe(true);
   });
 
-  it("califica con un lanzamiento rápido aunque sea corto", () => {
-    // 30 px de arrastre pero soltada a 0.8 px/ms hacia la derecha
-    expect(decideSwipe(30, 5, 0.8, 0.1)).toBe("right");
-    expect(decideSwipe(-30, 5, -0.8, 0.1)).toBe("left");
+  it("rechaza un arrastre corto y lento, que vuelve a su sitio", () => {
+    expect(isThrow(60, 0.1)).toBe(false);
+  });
+});
+
+describe("flightEnd", () => {
+  it("prolonga el gesto en la dirección de la velocidad", () => {
+    const end = flightEnd(100, -20, 1, 0.5);
+
+    // Cada componente suma velocidad por duración, con el factor de empuje 1.4
+    expect(end.x).toBeCloseTo(100 + 1 * FLY_DURATION * 1.4, 10);
+    expect(end.y).toBeCloseTo(-20 + 0.5 * FLY_DURATION * 1.4, 10);
   });
 
-  it("ignora gestos más verticales que horizontales", () => {
-    //Arrastre lejano pero hacia abajo
-    expect(decideSwipe(80, 200, 0, 0)).toBe("none");
+  it("sin velocidad empuja 700 px en la dirección del arrastre", () => {
+    //Arrastre puro hacia la izquierda: termina 700 px a la izquierda
+    expect(flightEnd(-150, 0, 0, 0)).toEqual({ x: -700, y: 0 });
 
-    // Lanzamiento rápido pero en diagonal hacia arriba
-    expect(decideSwipe(60, 70, 0.4, -0.6)).toBe("none");
+    // En diagonal se conserva la proporción entre ejes
+    const end = flightEnd(30, 40, 0, 0);
+    expect(end.x).toBeCloseTo(420, 10);
+    expect(end.y).toBeCloseTo(560, 10);
+  });
+});
+
+describe("landingSide", () => {
+  it("es derecha cuando el centro pasa la mitad de la pantalla", () => {
+    expect(landingSide(201, 400)).toBe("right");
+    expect(landingSide(900, 400)).toBe("right");
+  });
+
+  it("es izquierda en la mitad exacta o antes", () => {
+    //Caer justo en el centro no cuenta como acierto
+    expect(landingSide(200, 400)).toBe("left");
+    expect(landingSide(-300, 400)).toBe("left");
   });
 });
