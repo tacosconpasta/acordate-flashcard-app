@@ -4,8 +4,9 @@ import {
   SQLiteDBConnection,
 } from "@capacitor-community/sqlite";
 import type { NewUser, User } from "../models/User";
-import type { NewDeck, Deck, DeckWithCards } from "../models/Deck";
+import type { NewDeck, Deck, DeckWithCards, DeckWithStats } from "../models/Deck";
 import type { NewCard, Card } from "../models/Card";
+import { SM2 } from "./SM2";
 
 const DB_NAME = "acordate";
 
@@ -33,7 +34,11 @@ const CREATE_TABLES = `
     back           TEXT    NOT NULL,
     description    TEXT    NOT NULL DEFAULT '',
     last_practiced TEXT,
-    deck_id        INTEGER NOT NULL REFERENCES deck(id) ON DELETE CASCADE
+    deck_id        INTEGER NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
+    interval       INTEGER NOT NULL DEFAULT 0,
+    repetitions    INTEGER NOT NULL DEFAULT 0,
+    ease_factor    REAL    NOT NULL DEFAULT 2.5,
+    due            TEXT
   );
 `;
 
@@ -169,14 +174,22 @@ export async function getDeckWithCards(
 
 export async function insertCard(card: NewCard): Promise<number> {
   const conn = await getDb();
+  const progress = { ...SM2.fresh(), ...card };
   const result = await conn.run(
-    "INSERT INTO card (front, back, description, last_practiced, deck_id) VALUES (?, ?, ?, ?, ?)",
+    `INSERT INTO card
+       (front, back, description, last_practiced, deck_id,
+        interval, repetitions, ease_factor, due)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       card.front,
       card.back,
       card.description,
-      card.last_practiced ?? null,
+      progress.last_practiced ?? null,
       card.deck_id,
+      progress.interval,
+      progress.repetitions,
+      progress.ease_factor,
+      progress.due ?? null,
     ]
   );
   return result.changes?.lastId ?? -1;
@@ -199,12 +212,19 @@ export async function getCardById(cardId: number): Promise<Card | null> {
 export async function updateCard(card: Card): Promise<void> {
   const conn = await getDb();
   await conn.run(
-    "UPDATE card SET front = ?, back = ?, description = ?, last_practiced = ? WHERE id = ?",
+    `UPDATE card
+        SET front = ?, back = ?, description = ?, last_practiced = ?,
+            interval = ?, repetitions = ?, ease_factor = ?, due = ?
+      WHERE id = ?`,
     [
       card.front,
       card.back,
       card.description,
       card.last_practiced ?? null,
+      card.interval,
+      card.repetitions,
+      card.ease_factor,
+      card.due ?? null,
       card.id,
     ]
   );
@@ -213,6 +233,97 @@ export async function updateCard(card: Card): Promise<void> {
 export async function deleteCard(cardId: number): Promise<void> {
   const conn = await getDb();
   await conn.run("DELETE FROM card WHERE id = ?", [cardId]);
+}
+
+// Repaso espaciado (SM-2)
+
+/**
+ * Tarjetas pendientes de un mazo: las que ya vencieron, ordenadas por fecha,
+ * seguidas de las nuevas en orden de creación.
+ */
+export async function getDueCards(
+  deckId: number,
+  now: Date = new Date()
+): Promise<Card[]> {
+  const conn = await getDb();
+  const result = await conn.query(
+    `SELECT * FROM card
+      WHERE deck_id = ?
+        AND (due IS NULL OR due <= ?)
+      ORDER BY (due IS NULL) ASC, due ASC, id ASC`,
+    [deckId, now.toISOString()]
+  );
+  return (result.values ?? []) as Card[];
+}
+
+/**
+ * Califica una tarjeta: calcula los nuevos campos con SM-2, los guarda y
+ * registra la práctica en el mazo. Devuelve la tarjeta actualizada.
+ */
+export async function reviewCard(
+  card: Card,
+  remembered: boolean,
+  now: Date = new Date()
+): Promise<Card> {
+  const conn = await getDb();
+  const next: Card = { ...card, ...new SM2(now).rate(card, remembered) };
+  await conn.run(
+    `UPDATE card
+        SET last_practiced = ?, interval = ?, repetitions = ?, ease_factor = ?, due = ?
+      WHERE id = ?`,
+    [
+      next.last_practiced,
+      next.interval,
+      next.repetitions,
+      next.ease_factor,
+      next.due,
+      next.id,
+    ]
+  );
+  await conn.run("UPDATE deck SET last_practiced = ? WHERE id = ?", [
+    now.toISOString(),
+    card.deck_id,
+  ]);
+  return next;
+}
+
+//Reinicia la programación de una tarjeta para que vuelva a ser nueva
+export async function resetCardProgress(cardId: number): Promise<void> {
+  const conn = await getDb();
+  const fresh = SM2.fresh();
+  await conn.run(
+    `UPDATE card
+        SET last_practiced = ?, interval = ?, repetitions = ?, ease_factor = ?, due = ?
+      WHERE id = ?`,
+    [
+      fresh.last_practiced,
+      fresh.interval,
+      fresh.repetitions,
+      fresh.ease_factor,
+      fresh.due,
+      cardId,
+    ]
+  );
+}
+
+// Mazos de un usuario con sus tarjetas y el resumen de pendientes
+export async function getDecksWithStats(
+  userId: number,
+  now: Date = new Date()
+): Promise<DeckWithStats[]> {
+  const sm2 = new SM2(now);
+  const decks = await getDecks(userId);
+  const rows: DeckWithStats[] = [];
+  for (const deck of decks) {
+    const cards = await getCards(deck.id);
+    rows.push({
+      ...deck,
+      cards,
+      stats: sm2.stats(cards),
+      nextDue: sm2.nextDueDate(cards),
+    });
+  }
+  return rows;
 }
 
 export async function seedExampleData(userId: number): Promise<void> {
