@@ -26,7 +26,6 @@ import {
 import { useHistory } from "react-router-dom";
 import {
   initDatabase,
-  seedExampleData,
   getUsers,
   getDecks,
   getCards,
@@ -73,7 +72,6 @@ const Home: React.FC = () => {
       }
 
       setUser(currentUser);
-      await seedExampleData(currentUser.id);
 
       const userDecks = await getDecks(currentUser.id);
       const deckRows: DeckRow[] = await Promise.all(
