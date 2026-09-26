@@ -11,14 +11,10 @@ import {
   arrowBackOutline,
   checkmarkCircleOutline,
   closeCircleOutline,
-  refreshOutline,
-  timeOutline,
 } from "ionicons/icons";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { useHistory, useParams } from "react-router-dom";
 import { getCards, getDueCards, reviewCard } from "../lib/Database";
-import { SM2 } from "../lib/SM2";
-import { describeDate } from "../lib/ProgressFormat";
 import {
   FLY_DURATION,
   flightEnd,
@@ -50,8 +46,7 @@ const SIDE_RANGE = 0.35;
 //Duración de la recompensa de acierto, igual a la animación más larga del CSS
 const HIT_DURATION = 720;
 
-// Cuánto baja (px) y cuánto crece el ícono de la barra superior cuando la tarjeta llega a su lado
-const ICON_DROP = 34;
+// Cuánto crece el contador de la barra inferior cuando la tarjeta llega a su lado
 const ICON_GROW = 0.9;
 
 const FACE_BASE: React.CSSProperties = {
@@ -71,9 +66,6 @@ interface SessionResults {
   forgotten: number;
 }
 
-// "pendientes" es la sesión normal; "todas" repasa el mazo completo sin importar fechas
-type Mode = "pendientes" | "todas";
-
 const PracticeView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const history = useHistory();
@@ -82,10 +74,7 @@ const PracticeView: React.FC = () => {
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [flipped, setFlipped] = useState(false);
-  const [mode, setMode] = useState<Mode>("pendientes");
   const [results, setResults] = useState<SessionResults>({ remembered: 0, forgotten: 0 });
-  const [nextDue, setNextDue] = useState<Date | null>(null);
-  const [totalInDeck, setTotalInDeck] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -93,8 +82,12 @@ const PracticeView: React.FC = () => {
   const glowRightRef = useRef<HTMLDivElement>(null);
   const iconLeftRef = useRef<HTMLSpanElement>(null);
   const iconRightRef = useRef<HTMLSpanElement>(null);
+  const countLeftRef = useRef<HTMLSpanElement>(null);
+  const countRightRef = useRef<HTMLSpanElement>(null);
   const liveLeftRef = useRef<HTMLIonIconElement>(null);
   const liveRightRef = useRef<HTMLIonIconElement>(null);
+  const liveNumLeftRef = useRef<HTMLSpanElement>(null);
+  const liveNumRightRef = useRef<HTMLSpanElement>(null);
   const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const cardCenterX = useRef(0); //centro de la tarjeta en pantalla al empezar el arrastre
@@ -110,30 +103,27 @@ const PracticeView: React.FC = () => {
   useEffect(() => { indexRef.current = index; }, [index]);
   useEffect(() => { cardsRef.current = cards; }, [cards]);
 
-  // Carga la cola de la sesión: solo las pendientes, o todo el mazo si se pide
-  async function load(nextMode: Mode) {
+  /**
+   * Arma la cola de la sesión: lo pendiente en orden aleatorio, y si no hay
+   * nada pendiente, todo el mazo. La práctica no termina sola: cada vez que
+   * la cola se agota se vuelve a armar, y el usuario decide cuándo parar.
+   */
+  async function load(fresh: boolean) {
     setLoading(true);
     setFlipped(false);
     animateFlip.current = false;
-    setResults({ remembered: 0, forgotten: 0 });
+    if (fresh) setResults({ remembered: 0, forgotten: 0 });
     try {
       const deckId = Number(id);
       const all = await getCards(deckId);
-      setTotalInDeck(all.length);
-      const now = new Date();
-      const sm2 = new SM2(now);
 
-      //El próximo vencimiento se calcula sobre todo el mazo, para la pantalla "Estás al día"
-      setNextDue(sm2.nextDueDate(all));
-
-      //La cola es simplemente lo pendiente (o todo el mazo), en orden aleatorio
-      const source = nextMode === "todas" ? all : await getDueCards(deckId, now);
-      const queue = shuffle(source);
+      //Sin pendientes se sigue con el mazo completo, así siempre hay algo que practicar
+      const due = await getDueCards(deckId, new Date());
+      const queue = shuffle(due.length > 0 ? due : all);
       setCards(queue);
       cardsRef.current = queue;
       setIndex(0);
       indexRef.current = 0;
-      setMode(nextMode);
     } catch (err) {
       setToast(`No se pudieron cargar las tarjetas: ${String(err)}`);
     } finally {
@@ -142,7 +132,7 @@ const PracticeView: React.FC = () => {
   }
 
   useEffect(() => {
-    load("pendientes");
+    load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -150,7 +140,6 @@ const PracticeView: React.FC = () => {
 
   const current = cards[index];
   const next = cards[index + 1];
-  const remaining = Math.max(cards.length - index, 0);
   const empty = !loading && cards.length === 0;
 
   function move(x: number, y: number, deg: number, transition = "none") {
@@ -169,17 +158,19 @@ const PracticeView: React.FC = () => {
   function showSides(p: number) {
     const right = Math.max(0, p);
     const left = Math.max(0, -p);
-    const pose = (v: number) => `translateY(${v * ICON_DROP}px) scale(${1 + v * ICON_GROW})`;
+    const pose = (v: number) => `scale(${1 + v * ICON_GROW})`;
 
     if (glowRightRef.current) glowRightRef.current.style.opacity = String(right);
     if (glowLeftRef.current) glowLeftRef.current.style.opacity = String(left);
     if (liveRightRef.current) liveRightRef.current.style.opacity = String(right);
     if (liveLeftRef.current) liveLeftRef.current.style.opacity = String(left);
-    if (iconRightRef.current) iconRightRef.current.style.transform = pose(right);
-    if (iconLeftRef.current) iconLeftRef.current.style.transform = pose(left);
+    if (liveNumRightRef.current) liveNumRightRef.current.style.opacity = String(right);
+    if (liveNumLeftRef.current) liveNumLeftRef.current.style.opacity = String(left);
+    if (countRightRef.current) countRightRef.current.style.transform = pose(right);
+    if (countLeftRef.current) countLeftRef.current.style.transform = pose(left);
   }
 
-  //Recompensa de acierto: salto del check, anillo, destello del resplandor y una vibración ligera
+  //Recompensa de acierto: salto del check, anillo, destello del resplandor, salto del contador y una vibración ligera
   function celebrate() {
     const side = iconRightRef.current;
     const glow = glowRightRef.current;
@@ -192,12 +183,20 @@ const PracticeView: React.FC = () => {
     side.classList.add("is-hit");
     glow.classList.add("is-hit");
 
+    const count = countRightRef.current;
+    if (count) {
+      count.classList.remove("is-bumped");
+      void count.offsetWidth;
+      count.classList.add("is-bumped");
+    }
+
     Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
 
     if (hitTimer.current) clearTimeout(hitTimer.current);
     hitTimer.current = setTimeout(() => {
       side.classList.remove("is-hit");
       glow.classList.remove("is-hit");
+      count?.classList.remove("is-bumped");
     }, HIT_DURATION);
   }
 
@@ -333,10 +332,10 @@ const PracticeView: React.FC = () => {
       showSides(0);
       const nextIdx = indexRef.current + 1;
 
-      //Al agotar la cola se vuelve a consultar la base: lo recordado ya no está pendiente
+      //Al agotar la cola se vuelve a armar sin reiniciar los contadores
       if (nextIdx >= cardsRef.current.length) {
         busy.current = false;
-        load("pendientes");
+        load(false);
         return;
       }
       setIndex(nextIdx);
@@ -442,40 +441,41 @@ const PracticeView: React.FC = () => {
           </IonButton>
         </div>
 
-        {/* Progreso de la sesión: recordadas, restantes, olvidadas */}
+        {/* Contadores de la sesión, abajo: olvidadas a la izquierda y recordadas a la derecha */}
         {!empty && current && (
           <div style={{
             position: "absolute",
-            top: "calc(var(--ion-safe-area-top) + 18px)",
+            bottom: "calc(var(--ion-safe-area-bottom) + 22px)",
             left: 0, right: 0,
             margin: 0,
             zIndex: 50,
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
-            gap: 14,
-            fontSize: "0.85rem",
+            gap: 48,
+            fontSize: "0.95rem",
             color: "var(--ion-color-medium)",
             pointerEvents: "none",
           }}>
-            <span className="practice-count" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span ref={iconLeftRef} className="practice-top-icon practice-top-icon--left">
-                <IonIcon icon={closeCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--idle" />
-                <IonIcon ref={liveLeftRef} icon={closeCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--live" />
+            <span ref={countLeftRef} className="practice-count" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span ref={iconLeftRef} className="practice-bar-icon practice-bar-icon--left">
+                <IonIcon icon={closeCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--idle" />
+                <IonIcon ref={liveLeftRef} icon={closeCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--live" />
               </span>
-              {results.forgotten}
+              <span className="practice-bar-number">
+                <span className="practice-bar-number__copy practice-bar-number__copy--idle">{results.forgotten}</span>
+                <span ref={liveNumLeftRef} className="practice-bar-number__copy practice-bar-number__copy--live practice-bar-number__copy--left">{results.forgotten}</span>
+              </span>
             </span>
-            <span>{remaining} {remaining === 1 ? "restante" : "restantes"}</span>
-            <span
-              key={results.remembered}
-              className={`practice-count${results.remembered > 0 ? " is-bumped" : ""}`}
-              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-            >
-              <span ref={iconRightRef} className="practice-top-icon practice-top-icon--right">
-                <IonIcon icon={checkmarkCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--idle" />
-                <IonIcon ref={liveRightRef} icon={checkmarkCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--live" />
+            <span ref={countRightRef} className="practice-count" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span ref={iconRightRef} className="practice-bar-icon practice-bar-icon--right">
+                <IonIcon icon={checkmarkCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--idle" />
+                <IonIcon ref={liveRightRef} icon={checkmarkCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--live" />
               </span>
-              {results.remembered}
+              <span className="practice-bar-number">
+                <span className="practice-bar-number__copy practice-bar-number__copy--idle">{results.remembered}</span>
+                <span ref={liveNumRightRef} className="practice-bar-number__copy practice-bar-number__copy--live practice-bar-number__copy--right">{results.remembered}</span>
+              </span>
             </span>
           </div>
         )}
@@ -495,29 +495,12 @@ const PracticeView: React.FC = () => {
           {empty ? (
             <div style={{ textAlign: "center", maxWidth: 320 }}>
               <IonIcon
-                icon={totalInDeck === 0 ? closeCircleOutline : timeOutline}
+                icon={closeCircleOutline}
                 style={{ fontSize: 56, color: "var(--ion-color-medium)", marginBottom: 8 }}
               />
-              {totalInDeck === 0 ? (
-                <p style={{ color: "var(--ion-color-medium)" }}>
-                  No hay tarjetas en este mazo.
-                </p>
-              ) : (
-                <>
-                  <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: "1.2rem" }}>
-                    Estás al día
-                  </p>
-                  <p style={{ margin: "0 0 20px", color: "var(--ion-color-medium)" }}>
-                    {nextDue
-                      ? `La próxima tarjeta vence ${describeDate(nextDue, new Date())}.`
-                      : "No hay tarjetas programadas."}
-                  </p>
-                  <IonButton expand="block" fill="outline" onClick={() => load("todas")}>
-                    <IonIcon icon={refreshOutline} slot="start" />
-                    Repasar todo el mazo
-                  </IonButton>
-                </>
-              )}
+              <p style={{ color: "var(--ion-color-medium)" }}>
+                No hay tarjetas en este mazo.
+              </p>
               <IonButton expand="block" fill="clear" onClick={() => history.goBack()}>
                 Volver
               </IonButton>
@@ -601,24 +584,6 @@ const PracticeView: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* Pista de uso */}
-        {!empty && current && (
-          <p style={{
-            position: "absolute",
-            bottom: "calc(var(--ion-safe-area-bottom) + 20px)",
-            left: 0, right: 0,
-            margin: 0,
-            textAlign: "center",
-            fontSize: "0.8rem",
-            color: "var(--ion-color-medium)",
-            pointerEvents: "none",
-          }}>
-            {flipped
-              ? "Lanza a la derecha si la recordaste, a la izquierda si no"
-              : `Toca para ver la respuesta · Lanza para calificar${mode === "todas" ? " · todo el mazo" : ""}`}
-          </p>
-        )}
 
         <IonToast
           isOpen={toast !== null}
