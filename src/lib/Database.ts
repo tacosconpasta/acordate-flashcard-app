@@ -174,7 +174,7 @@ export async function getDeckWithCards(
 
 export async function insertCard(card: NewCard): Promise<number> {
   const conn = await getDb();
-  const schedule = { ...SM2.fresh(), ...card };
+  const progress = { ...SM2.fresh(), ...card };
   const result = await conn.run(
     `INSERT INTO card
        (front, back, description, last_practiced, deck_id,
@@ -184,12 +184,12 @@ export async function insertCard(card: NewCard): Promise<number> {
       card.front,
       card.back,
       card.description,
-      schedule.last_practiced ?? null,
+      progress.last_practiced ?? null,
       card.deck_id,
-      schedule.interval,
-      schedule.repetitions,
-      schedule.ease_factor,
-      schedule.due ?? null,
+      progress.interval,
+      progress.repetitions,
+      progress.ease_factor,
+      progress.due ?? null,
     ]
   );
   return result.changes?.lastId ?? -1;
