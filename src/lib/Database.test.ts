@@ -12,7 +12,10 @@ import type { Card, NewCard } from "../models/Card";
 
 //Registro de lo que la conexión simulada recibe, compartido con el mock
 type Call = { kind: "execute" | "query" | "run"; sql: string; params?: unknown[] };
-const state = vi.hoisted(() => ({ calls: [] as Call[], rows: [] as unknown[] }));
+const state = vi.hoisted(() => ({
+  calls: [] as Call[],
+  tables: {} as Record<string, unknown[]>,
+}));
 
 // El mock se declara con vi.mock para que reemplace al plugin antes de importar Database
 vi.mock("@capacitor-community/sqlite", () => {
@@ -25,8 +28,9 @@ vi.mock("@capacitor-community/sqlite", () => {
     query: async (sql: string, params?: unknown[]) => {
       state.calls.push({ kind: "query", sql, params });
 
-      //Los SELECT devuelven las filas que cada prueba haya preparado
-      return { values: sql.trim().startsWith("SELECT") ? state.rows : [] };
+      //Los SELECT devuelven las filas que cada prueba haya preparado para esa tabla
+      const table = /FROM (\w+)/.exec(sql)?.[1];
+      return { values: table ? state.tables[table] ?? [] : [] };
     },
     run: async (sql: string, params?: unknown[]) => {
       state.calls.push({ kind: "run", sql, params });
@@ -58,7 +62,7 @@ let db: Database;
 
 beforeEach(async () => {
   state.calls = [];
-  state.rows = [];
+  state.tables = {};
   vi.resetModules();
   db = await import("./Database");
 });
@@ -183,7 +187,7 @@ describe("updateCard", () => {
 
 describe("getDueCards", () => {
   it("pide las vencidas y las nuevas del mazo, ordenadas", async () => {
-    state.rows = [{ id: 1 }, { id: 2 }];
+    state.tables = { card: [{ id: 1 }, { id: 2 }] };
     const cards = await db.getDueCards(4, NOW);
 
     // Se devuelven tal cual las filas que entregó la base
@@ -235,5 +239,55 @@ describe("reviewCard", () => {
 
     //La tarjeta recibida no se modifica, reviewCard devuelve una copia
     expect(PRACTICED.interval).toBe(1);
+  });
+});
+
+describe("resetCardProgress", () => {
+  it("vuelve a escribir los valores de una tarjeta nueva", async () => {
+    await db.resetCardProgress(12);
+
+    //Mismos valores que SM2.fresh(), así la tarjeta vuelve a contar como nueva
+    const fresh = SM2.fresh();
+    expect(lastRun().sql).toMatch(/UPDATE card/);
+    expect(lastRun().params).toEqual([
+      fresh.last_practiced,
+      fresh.interval,
+      fresh.repetitions,
+      fresh.ease_factor,
+      fresh.due,
+      12,
+    ]);
+  });
+});
+
+describe("getDecksWithStats", () => {
+  it("arma cada mazo con sus tarjetas, el resumen y el próximo vencimiento", async () => {
+    // Dos mazos del usuario; la base simulada devuelve las mismas tarjetas para ambos
+    state.tables = {
+      deck: [
+        { id: 1, name: "Español", user_id: 9 },
+        { id: 2, name: "Japonés", user_id: 9 },
+      ],
+      card: [SM2.fresh(), PRACTICED],
+    };
+    const decks = await db.getDecksWithStats(9, NOW);
+
+    expect(decks).toHaveLength(2);
+    expect(decks.map((d) => d.name)).toEqual(["Español", "Japonés"]);
+
+    //Una nueva (pendiente) y una que vence mañana: total 2, pendientes 1, nuevas 1
+    expect(decks[0].cards).toHaveLength(2);
+    expect(decks[0].stats).toEqual({ total: 2, due: 1, fresh: 1 });
+
+    // El próximo vencimiento es el de la tarjeta ya practicada
+    expect(decks[0].nextDue?.toISOString()).toBe(PRACTICED.due);
+  });
+
+  it("devuelve un mazo vacío sin próximo vencimiento", async () => {
+    state.tables = { deck: [{ id: 1, name: "Vacío", user_id: 9 }], card: [] };
+    const [deck] = await db.getDecksWithStats(9, NOW);
+
+    expect(deck.stats).toEqual({ total: 0, due: 0, fresh: 0 });
+    expect(deck.nextDue).toBeNull();
   });
 });

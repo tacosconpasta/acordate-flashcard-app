@@ -4,7 +4,7 @@ import {
   SQLiteDBConnection,
 } from "@capacitor-community/sqlite";
 import type { NewUser, User } from "../models/User";
-import type { NewDeck, Deck, DeckWithCards } from "../models/Deck";
+import type { NewDeck, Deck, DeckWithCards, DeckWithStats } from "../models/Deck";
 import type { NewCard, Card } from "../models/Card";
 import { SM2 } from "./SM2";
 
@@ -285,6 +285,45 @@ export async function reviewCard(
     card.deck_id,
   ]);
   return next;
+}
+
+//Reinicia la programación de una tarjeta para que vuelva a ser nueva
+export async function resetCardProgress(cardId: number): Promise<void> {
+  const conn = await getDb();
+  const fresh = SM2.fresh();
+  await conn.run(
+    `UPDATE card
+        SET last_practiced = ?, interval = ?, repetitions = ?, ease_factor = ?, due = ?
+      WHERE id = ?`,
+    [
+      fresh.last_practiced,
+      fresh.interval,
+      fresh.repetitions,
+      fresh.ease_factor,
+      fresh.due,
+      cardId,
+    ]
+  );
+}
+
+// Mazos de un usuario con sus tarjetas y el resumen de pendientes
+export async function getDecksWithStats(
+  userId: number,
+  now: Date = new Date()
+): Promise<DeckWithStats[]> {
+  const sm2 = new SM2(now);
+  const decks = await getDecks(userId);
+  const rows: DeckWithStats[] = [];
+  for (const deck of decks) {
+    const cards = await getCards(deck.id);
+    rows.push({
+      ...deck,
+      cards,
+      stats: sm2.stats(cards),
+      nextDue: sm2.nextDueDate(cards),
+    });
+  }
+  return rows;
 }
 
 export async function seedExampleData(userId: number): Promise<void> {
