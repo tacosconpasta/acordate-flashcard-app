@@ -52,6 +52,10 @@ const ICON_GROW = 0.9;
 //Cada cuántos aciertos seguidos la celebración es mayor
 const COMBO_MILESTONE = 3;
 
+//Partículas por acierto normal y por hito de racha
+const PARTICLES_HIT = 10;
+const PARTICLES_MILESTONE = 22;
+
 const FACE_BASE: React.CSSProperties = {
   position: "absolute",
   inset: 0,
@@ -93,6 +97,7 @@ const PracticeView: React.FC = () => {
   const liveNumLeftRef = useRef<HTMLSpanElement>(null);
   const liveNumRightRef = useRef<HTMLSpanElement>(null);
   const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
   const liftRef = useRef<HTMLDivElement>(null);
   const streakRef = useRef(0);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -181,8 +186,8 @@ const PracticeView: React.FC = () => {
   }
 
   /**
-   * Recompensa de acierto: salto del check, anillo, destello del resplandor y
-   * háptico. En los hitos de racha todo es más fuerte.
+   * Recompensa de acierto: salto del check, anillo, destello del resplandor,
+   * partículas, sacudida y háptico. En los hitos de racha todo es más fuerte.
    */
   function celebrate(newStreak: number) {
     const side = iconRightRef.current;
@@ -206,6 +211,9 @@ const PracticeView: React.FC = () => {
       count.classList.add("is-bumped");
     }
 
+    burst(side, milestone ? PARTICLES_MILESTONE : PARTICLES_HIT);
+    shakeArea(milestone);
+
     //Háptico ligero en un acierto normal y de notificación en los hitos
     const buzz = milestone
       ? Haptics.notification({ type: NotificationType.Success })
@@ -218,6 +226,41 @@ const PracticeView: React.FC = () => {
       glow.classList.remove("is-hit");
       count?.classList.remove("is-bumped");
     }, HIT_DURATION);
+  }
+
+  //Ráfaga de puntos que salen del centro de un elemento en direcciones al azar y se desvanecen
+  function burst(from: HTMLElement, count: number) {
+    const host = areaRef.current;
+    if (!host) return;
+    const origin = from.getBoundingClientRect();
+    const box = host.getBoundingClientRect();
+    const cx = origin.left + origin.width / 2 - box.left;
+    const cy = origin.top + origin.height / 2 - box.top;
+
+    for (let i = 0; i < count; i++) {
+      const dot = document.createElement("span");
+      dot.className = "practice-particle";
+
+      // Ángulo y distancia al azar; el tamaño varía un poco para que no parezcan clones
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 40 + Math.random() * 70;
+      dot.style.left = `${cx}px`;
+      dot.style.top = `${cy}px`;
+      dot.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+      dot.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
+      dot.style.setProperty("--size", `${4 + Math.random() * 4}px`);
+      host.appendChild(dot);
+      dot.addEventListener("animationend", () => dot.remove(), { once: true });
+    }
+  }
+
+  // Sacudida corta del área de la tarjeta; la fuerte se usa en los hitos
+  function shakeArea(strong: boolean) {
+    const host = areaRef.current;
+    if (!host) return;
+    host.classList.remove("is-shaken", "is-shaken-strong");
+    void host.offsetWidth;
+    host.classList.add(strong ? "is-shaken-strong" : "is-shaken");
   }
 
   //La tarjeta se levanta al tocarla y vuelve a posarse al soltarla
@@ -522,7 +565,7 @@ const PracticeView: React.FC = () => {
         )}
 
         {/* Área principal */}
-        <div style={{
+        <div ref={areaRef} className="practice-area" style={{
           height: "100%",
           display: "flex",
           alignItems: "center",
