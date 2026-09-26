@@ -176,17 +176,7 @@ const PracticeView: React.FC = () => {
       return;
     }
 
-    // Sin ver la respuesta no se califica: un gesto fuerte solo la voltea
-    if (!flippedRef.current) {
-      const strong = speed > 0.45 || dist > 40;
-      move(0, 0, 0, "transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)");
-      if (strong) {
-        setTimeout(() => { animateFlip.current = true; setFlipped(true); }, 80);
-      }
-      return;
-    }
-
-    //Con la respuesta visible: derecha es recordada, izquierda es olvidada
+    //Derecha es recordada, izquierda es olvidada; no hace falta haber visto la respuesta
     const direction = decideSwipe(dx, dy, vx, vy);
     if (direction === "none") {
       snapBack();
@@ -563,7 +553,7 @@ const PracticeView: React.FC = () => {
           }}>
             {flipped
               ? "Desliza a la derecha si la recordaste, a la izquierda si no"
-              : `Toca para ver la respuesta${mode === "todas" ? " · todo el mazo" : ""}`}
+              : `Toca para ver la respuesta · Desliza para calificar${mode === "todas" ? " · todo el mazo" : ""}`}
           </p>
         )}
 
