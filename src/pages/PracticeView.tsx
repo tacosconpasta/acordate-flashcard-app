@@ -18,7 +18,16 @@ import { useHistory, useParams } from "react-router-dom";
 import { getCards, getDueCards, reviewCard } from "../lib/Database";
 import { SM2 } from "../lib/SM2";
 import { describeDate } from "../lib/ProgressFormat";
-import { decideSwipe, isTap, velocity, type Sample } from "../lib/Swipe";
+import {
+  FLY_DURATION,
+  flightEnd,
+  isTap,
+  isThrow,
+  landingSide,
+  velocity,
+  type Point,
+  type Sample,
+} from "../lib/Swipe";
 import type { Card } from "../models/Card";
 
 function shuffle<T>(arr: T[]): T[] {
@@ -68,6 +77,7 @@ const PracticeView: React.FC = () => {
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
+  const cardCenterX = useRef(0); //centro de la tarjeta en pantalla al empezar el arrastre
   const velBuf = useRef<Sample[]>([]);
   const busy = useRef(false);
   const flippedRef = useRef(false);
@@ -137,6 +147,10 @@ const PracticeView: React.FC = () => {
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStart.current = { x: e.clientX, y: e.clientY };
     velBuf.current = [{ x: e.clientX, y: e.clientY, t: Date.now() }];
+
+    // Antes de moverla la tarjeta está en su sitio, así que este es su centro real
+    const rect = e.currentTarget.getBoundingClientRect();
+    cardCenterX.current = rect.left + rect.width / 2;
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -169,13 +183,17 @@ const PracticeView: React.FC = () => {
       return;
     }
 
-    //Derecha es recordada, izquierda es olvidada; no hace falta haber visto la respuesta
-    const direction = decideSwipe(dx, dy, vx, vy);
-    if (direction === "none") {
+    // Un arrastre corto y lento no es un lanzamiento: la tarjeta vuelve a su sitio
+    if (!isThrow(dist, speed)) {
       snapBack();
-    } else {
-      rate(direction === "right", dx, dy, vx, vy);
+      return;
     }
+
+    //Lanzamiento libre: la tarjeta vuela hacia donde se lanzó, y el lado en que
+    //cae respecto a la mitad de la pantalla decide si fue recordada u olvidada
+    const end = flightEnd(dx, dy, vx, vy);
+    const side = landingSide(cardCenterX.current + end.x, window.innerWidth);
+    rate(side === "right", end);
   }
 
   function onPointerCancel() {
@@ -187,21 +205,14 @@ const PracticeView: React.FC = () => {
 
   /**
    * Califica la tarjeta actual: guarda el resultado con SM-2 mientras la
-   * tarjeta sale volando hacia el lado correspondiente. Si se olvidó, vuelve
-   * al final de la cola para repetirla en la misma sesión.
+   * tarjeta sale volando hasta el punto donde termina el lanzamiento. Si se
+   * olvidó, vuelve al final de la cola para repetirla en la misma sesión.
    */
-  function rate(remembered: boolean, dx: number, dy: number, vx: number, vy: number) {
+  function rate(remembered: boolean, end: Point) {
     const card = cardsRef.current[indexRef.current];
     if (!card || busy.current) return;
 
-    //Se fuerza un mínimo de desplazamiento y velocidad hacia el lado elegido
-    const side = remembered ? 1 : -1;
-    flyAway(
-      side * Math.max(Math.abs(dx), 80),
-      dy,
-      side * Math.max(Math.abs(vx), 0.9),
-      vy,
-      async () => {
+    flyAway(end, async () => {
         let updated = card;
         try {
           updated = await reviewCard(card, remembered);
@@ -221,34 +232,17 @@ const PracticeView: React.FC = () => {
             ? { ...r, remembered: r.remembered + 1 }
             : { ...r, forgotten: r.forgotten + 1 }
         );
-      }
-    );
+    });
   }
 
-  async function flyAway(
-    dx: number,
-    dy: number,
-    vx: number,
-    vy: number,
-    apply: () => Promise<void>
-  ) {
+  // Anima la tarjeta hasta el punto final, guarda mientras vuela y trae la siguiente
+  async function flyAway(end: Point, apply: () => Promise<void>) {
     busy.current = true;
-    const FLY_DURATION = 400;
     const SWAP_AT = 180; //cambiar el contenido cuando la tarjeta ya salió de pantalla
 
-    const speed = Math.sqrt(vx * vx + vy * vy);
-    let endX: number, endY: number;
-    if (speed > 0.05) {
-      endX = dx + vx * FLY_DURATION * 1.4;
-      endY = dy + vy * FLY_DURATION * 1.4;
-    } else {
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      endX = (dx / len) * 700;
-      endY = (dy / len) * 700;
-    }
-
-    const endTilt = Math.sign(endX) * Math.min(Math.abs(endX) * 0.05, 30);
-    move(endX, endY, endTilt, `transform ${FLY_DURATION}ms cubic-bezier(0.2, 0, 0.4, 1)`);
+    //La inclinación acompaña al lado hacia el que vuela, con tope para que no gire de más
+    const endTilt = Math.sign(end.x) * Math.min(Math.abs(end.x) * 0.05, 30);
+    move(end.x, end.y, endTilt, `transform ${FLY_DURATION}ms cubic-bezier(0.2, 0, 0.4, 1)`);
 
     // El guardado corre durante el vuelo; si tarda más que la animación se espera a que termine
     const started = Date.now();
@@ -529,8 +523,8 @@ const PracticeView: React.FC = () => {
             pointerEvents: "none",
           }}>
             {flipped
-              ? "Desliza a la derecha si la recordaste, a la izquierda si no"
-              : `Toca para ver la respuesta · Desliza para calificar${mode === "todas" ? " · todo el mazo" : ""}`}
+              ? "Lanza a la derecha si la recordaste, a la izquierda si no"
+              : `Toca para ver la respuesta · Lanza para calificar${mode === "todas" ? " · todo el mazo" : ""}`}
           </p>
         )}
 
