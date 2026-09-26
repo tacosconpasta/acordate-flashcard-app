@@ -441,7 +441,7 @@ const PracticeView: React.FC = () => {
     }, wait);
   }
 
-  //Sacudir el teléfono voltea la tarjeta cuando la respuesta está oculta
+  // Sacudir el teléfono voltea la tarjeta si la respuesta está oculta, y la marca olvidada si ya se ve
   useEffect(() => {
     let lastShake = 0;
     let lastX = 0, lastY = 0, lastZ = 0;
@@ -469,9 +469,15 @@ const PracticeView: React.FC = () => {
         const now = Date.now();
         if (now - lastShake > COOLDOWN) {
           lastShake = now;
-          if (!cardsRef.current[indexRef.current] || flippedRef.current) return;
-          animateFlip.current = true;
-          setFlipped(true);
+          if (!cardsRef.current[indexRef.current]) return;
+          if (!flippedRef.current) {
+            animateFlip.current = true;
+            setFlipped(true);
+            return;
+          }
+
+          //Con la respuesta a la vista, la sacudida equivale a lanzarla hacia la izquierda
+          rate(false, flightEnd(-80, -60, -1.0, -0.6));
         }
       }
     }
@@ -488,6 +494,7 @@ const PracticeView: React.FC = () => {
     }
 
     return () => window.removeEventListener("devicemotion", onMotion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {
