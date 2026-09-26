@@ -30,13 +30,6 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// Las tarjetas en repaso van primero, mezcladas, y las nuevas al final en orden de creación
-function buildQueue(cards: Card[], sm2: SM2): Card[] {
-  const fresh = cards.filter((c) => sm2.isNew(c));
-  const rest = cards.filter((c) => !sm2.isNew(c));
-  return [...shuffle(rest), ...fresh];
-}
-
 const CARD_HEIGHT = 280;
 
 const FACE_BASE: React.CSSProperties = {
@@ -103,8 +96,9 @@ const PracticeView: React.FC = () => {
       //El próximo vencimiento se calcula sobre todo el mazo, para la pantalla "Estás al día"
       setNextDue(sm2.nextDueDate(all));
 
+      //La cola es simplemente lo pendiente (o todo el mazo), en orden aleatorio
       const source = nextMode === "todas" ? all : await getDueCards(deckId, now);
-      const queue = buildQueue(source, sm2);
+      const queue = shuffle(source);
       setCards(queue);
       cardsRef.current = queue;
       setIndex(0);
@@ -126,7 +120,6 @@ const PracticeView: React.FC = () => {
   const next = cards[index + 1];
   const remaining = Math.max(cards.length - index, 0);
   const empty = !loading && cards.length === 0;
-  const sm2 = new SM2();
 
   function move(x: number, y: number, deg: number, transition = "none") {
     const el = wrapperRef.current;
@@ -490,25 +483,9 @@ const PracticeView: React.FC = () => {
                   } as React.CSSProperties}>
                     {/* Cara frontal */}
                     <div style={{ ...FACE_BASE, background: "var(--ion-card-background, var(--ion-item-background))" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ion-color-medium)" }}>
-                          Frente
-                        </p>
-                        {sm2.isNew(current) && (
-                          <span style={{
-                            fontSize: "0.65rem",
-                            fontWeight: 700,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "var(--ion-color-primary)",
-                            background: "var(--ion-color-primary-tint)",
-                            padding: "2px 8px",
-                            borderRadius: 8,
-                          }}>
-                            Nueva
-                          </span>
-                        )}
-                      </div>
+                      <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ion-color-medium)" }}>
+                        Frente
+                      </p>
                       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <p style={{ margin: 0, fontSize: "1.5rem", fontWeight: 600, textAlign: "center" }}>
                           {current.front}
