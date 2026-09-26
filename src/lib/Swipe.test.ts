@@ -47,6 +47,13 @@ describe("swipeProgress", () => {
     expect(swipeProgress(40)).toBeLessThan(swipeProgress(80));
     expect(swipeProgress(80)).toBeLessThan(swipeProgress(110));
   });
+
+  it("acepta otro rango para medirlo respecto a la pantalla", () => {
+    //Con un rango de 300 px, a 120 px todavía no llega ni a la mitad
+    expect(swipeProgress(120, 300)).toBeLessThan(0.25);
+    expect(swipeProgress(300, 300)).toBe(1);
+    expect(swipeProgress(-300, 300)).toBe(-1);
+  });
 });
 
 describe("velocity", () => {

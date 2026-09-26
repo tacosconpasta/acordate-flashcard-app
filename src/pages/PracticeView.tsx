@@ -14,6 +14,7 @@ import {
   refreshOutline,
   timeOutline,
 } from "ionicons/icons";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { useHistory, useParams } from "react-router-dom";
 import { getCards, getDueCards, reviewCard } from "../lib/Database";
 import { SM2 } from "../lib/SM2";
@@ -24,11 +25,13 @@ import {
   isTap,
   isThrow,
   landingSide,
+  swipeProgress,
   velocity,
   type Point,
   type Sample,
 } from "../lib/Swipe";
 import type { Card } from "../models/Card";
+import "./PracticeView.css";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -40,6 +43,16 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 const CARD_HEIGHT = 280;
+
+// Fracción del ancho de pantalla que la tarjeta recorre para que un lado se encienda del todo
+const SIDE_RANGE = 0.35;
+
+//Duración de la recompensa de acierto, igual a la animación más larga del CSS
+const HIT_DURATION = 720;
+
+// Cuánto baja (px) y cuánto crece el ícono de la barra superior cuando la tarjeta llega a su lado
+const ICON_DROP = 34;
+const ICON_GROW = 0.9;
 
 const FACE_BASE: React.CSSProperties = {
   position: "absolute",
@@ -76,6 +89,13 @@ const PracticeView: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const glowLeftRef = useRef<HTMLDivElement>(null);
+  const glowRightRef = useRef<HTMLDivElement>(null);
+  const iconLeftRef = useRef<HTMLSpanElement>(null);
+  const iconRightRef = useRef<HTMLSpanElement>(null);
+  const liveLeftRef = useRef<HTMLIonIconElement>(null);
+  const liveRightRef = useRef<HTMLIonIconElement>(null);
+  const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const cardCenterX = useRef(0); //centro de la tarjeta en pantalla al empezar el arrastre
   const velBuf = useRef<Sample[]>([]);
@@ -126,6 +146,8 @@ const PracticeView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => () => { if (hitTimer.current) clearTimeout(hitTimer.current); }, []);
+
   const current = cards[index];
   const next = cards[index + 1];
   const remaining = Math.max(cards.length - index, 0);
@@ -138,8 +160,50 @@ const PracticeView: React.FC = () => {
     el.style.transform = `translate(${x}px, ${y}px) rotate(${deg}deg)`;
   }
 
+  /**
+   * Enciende un lado según lo cerca que esté la tarjeta: p va de -1 (izquierda)
+   * a 1 (derecha). El resplandor sube su opacidad, y el ícono de ese lado en la
+   * barra superior baja, crece y revela su copia de color sobre la gris. Se
+   * escribe directo en el DOM para seguir el dedo sin pasar por React.
+   */
+  function showSides(p: number) {
+    const right = Math.max(0, p);
+    const left = Math.max(0, -p);
+    const pose = (v: number) => `translateY(${v * ICON_DROP}px) scale(${1 + v * ICON_GROW})`;
+
+    if (glowRightRef.current) glowRightRef.current.style.opacity = String(right);
+    if (glowLeftRef.current) glowLeftRef.current.style.opacity = String(left);
+    if (liveRightRef.current) liveRightRef.current.style.opacity = String(right);
+    if (liveLeftRef.current) liveLeftRef.current.style.opacity = String(left);
+    if (iconRightRef.current) iconRightRef.current.style.transform = pose(right);
+    if (iconLeftRef.current) iconLeftRef.current.style.transform = pose(left);
+  }
+
+  //Recompensa de acierto: salto del check, anillo, destello del resplandor y una vibración ligera
+  function celebrate() {
+    const side = iconRightRef.current;
+    const glow = glowRightRef.current;
+    if (!side || !glow) return;
+
+    // Reiniciar las clases permite repetir la animación aunque el golpe anterior no haya terminado
+    side.classList.remove("is-hit");
+    glow.classList.remove("is-hit");
+    void side.offsetWidth;
+    side.classList.add("is-hit");
+    glow.classList.add("is-hit");
+
+    Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+
+    if (hitTimer.current) clearTimeout(hitTimer.current);
+    hitTimer.current = setTimeout(() => {
+      side.classList.remove("is-hit");
+      glow.classList.remove("is-hit");
+    }, HIT_DURATION);
+  }
+
   function snapBack() {
     move(0, 0, 0, "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)");
+    showSides(0);
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -158,6 +222,9 @@ const PracticeView: React.FC = () => {
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
     move(dx, dy, dx * 0.10);
+
+    //El lado se enciende según cuánto del ancho de pantalla lleva recorrido la tarjeta
+    showSides(swipeProgress(dx, window.innerWidth * SIDE_RANGE));
 
     // Solo se guardan las últimas muestras, para que la velocidad refleje el final del gesto
     const buf = velBuf.current;
@@ -212,6 +279,10 @@ const PracticeView: React.FC = () => {
     const card = cardsRef.current[indexRef.current];
     if (!card || busy.current) return;
 
+    // El lado elegido queda encendido del todo durante el vuelo
+    showSides(remembered ? 1 : -1);
+    if (remembered) celebrate();
+
     flyAway(end, async () => {
         let updated = card;
         try {
@@ -259,6 +330,7 @@ const PracticeView: React.FC = () => {
 
       animateFlip.current = false;
       setFlipped(false);
+      showSides(0);
       const nextIdx = indexRef.current + 1;
 
       //Al agotar la cola se vuelve a consultar la base: lo recordado ya no está pendiente
@@ -349,7 +421,15 @@ const PracticeView: React.FC = () => {
 
   return (
     <IonPage>
-      <IonContent scrollY={false}>
+      <IonContent scrollY={false} className="practice">
+        {/* Resplandores de borde, detrás de la tarjeta */}
+        {!empty && current && (
+          <>
+            <div ref={glowLeftRef} className="practice-glow practice-glow--left" />
+            <div ref={glowRightRef} className="practice-glow practice-glow--right" />
+          </>
+        )}
+
         {/* Botón de volver */}
         <div style={{
           position: "absolute",
@@ -378,12 +458,24 @@ const PracticeView: React.FC = () => {
             color: "var(--ion-color-medium)",
             pointerEvents: "none",
           }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--ion-color-success)" }}>
-              <IonIcon icon={checkmarkCircleOutline} /> {results.remembered}
+            <span className="practice-count" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span ref={iconLeftRef} className="practice-top-icon practice-top-icon--left">
+                <IonIcon icon={closeCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--idle" />
+                <IonIcon ref={liveLeftRef} icon={closeCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--live" />
+              </span>
+              {results.forgotten}
             </span>
             <span>{remaining} {remaining === 1 ? "restante" : "restantes"}</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--ion-color-danger)" }}>
-              <IonIcon icon={closeCircleOutline} /> {results.forgotten}
+            <span
+              key={results.remembered}
+              className={`practice-count${results.remembered > 0 ? " is-bumped" : ""}`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+            >
+              <span ref={iconRightRef} className="practice-top-icon practice-top-icon--right">
+                <IonIcon icon={checkmarkCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--idle" />
+                <IonIcon ref={liveRightRef} icon={checkmarkCircleOutline} className="practice-top-icon__copy practice-top-icon__copy--live" />
+              </span>
+              {results.remembered}
             </span>
           </div>
         )}

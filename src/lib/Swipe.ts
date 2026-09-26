@@ -39,16 +39,16 @@ export interface Point {
 
 /**
  * Cuánto se acerca la tarjeta a un lado, de -1 (izquierda) a 1 (derecha).
- * Dentro de la zona muerta es 0. Después crece con una curva cuadrática, así
- * los primeros milímetros casi no se notan y el resplandor se vuelve evidente
- * solo cerca del umbral de lanzamiento.
+ * Dentro de la zona muerta es 0. Después crece con una curva cuadrática hasta
+ * llegar a 1 cuando el desplazamiento alcanza `range`, así los primeros
+ * milímetros casi no se notan y el efecto se vuelve evidente cerca del borde.
  */
-export function swipeProgress(dx: number): number {
+export function swipeProgress(dx: number, range: number = THROW_DISTANCE): number {
   const distance = Math.abs(dx) - DEAD_ZONE;
   if (distance <= 0) return 0;
 
-  // Fracción del recorrido entre la zona muerta y el umbral, con tope en 1
-  const linear = Math.min(distance / (THROW_DISTANCE - DEAD_ZONE), 1);
+  // Fracción del recorrido entre la zona muerta y el rango, con tope en 1
+  const linear = Math.min(distance / Math.max(range - DEAD_ZONE, 1), 1);
 
   //Elevar al cuadrado suaviza la entrada sin cambiar los extremos 0 y 1
   return Math.sign(dx) * linear * linear;

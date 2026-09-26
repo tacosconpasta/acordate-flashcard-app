@@ -1,0 +1,130 @@
+/*
+ * Vista de práctica: resplandores de borde, íconos laterales y recompensa.
+ * Los valores de ajuste visual están como variables al inicio para afinarlos
+ * sin tocar el componente.
+ */
+.practice {
+  --practice-glow-width: 48vw;
+  --practice-glow-alpha: 0.62;
+  --practice-glow-blur: 30px;
+  --practice-top-icon-size: 18px;
+  --practice-follow: 90ms;
+}
+
+/* Resplandor anclado a un borde: elipse alta y angosta, muy difuminada, del color del lado a transparente */
+.practice-glow {
+  position: absolute;
+  top: -15%;
+  bottom: -15%;
+  width: var(--practice-glow-width);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(var(--practice-glow-blur));
+  transition: opacity var(--practice-follow) linear;
+  will-change: opacity;
+}
+.practice-glow--left {
+  left: 0;
+  background: radial-gradient(
+    ellipse 55% 62% at 0% 50%,
+    rgba(var(--ion-color-danger-rgb), var(--practice-glow-alpha)),
+    transparent 72%
+  );
+}
+.practice-glow--right {
+  right: 0;
+  background: radial-gradient(
+    ellipse 55% 62% at 100% 50%,
+    rgba(var(--ion-color-success-rgb), var(--practice-glow-alpha)),
+    transparent 72%
+  );
+}
+
+/* Ícono de la barra superior: en reposo gris, y con el arrastre baja, crece y gana color; la transformación la fija el componente */
+.practice-top-icon {
+  position: relative;
+  display: inline-block;
+  width: var(--practice-top-icon-size);
+  height: var(--practice-top-icon-size);
+  font-size: var(--practice-top-icon-size);
+  transform-origin: center;
+  transition: transform var(--practice-follow) ease-out;
+  will-change: transform;
+}
+
+/* Dos copias del ícono superpuestas: la gris siempre presente y la de color encima, que se revela con el arrastre */
+.practice-top-icon__copy {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--practice-follow) linear;
+}
+.practice-top-icon__copy--idle {
+  color: var(--ion-color-medium);
+}
+.practice-top-icon__copy--live {
+  opacity: 0;
+}
+.practice-top-icon--left .practice-top-icon__copy--live {
+  color: var(--ion-color-danger);
+}
+.practice-top-icon--right .practice-top-icon__copy--live {
+  color: var(--ion-color-success);
+}
+
+/* Recompensa de acierto: el ícono da un golpe de escala y suelta un anillo que se expande y desvanece */
+.practice-top-icon.is-hit .practice-top-icon__copy--live {
+  opacity: 1;
+  animation: practice-pop 620ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.practice-top-icon.is-hit::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--ion-color-success);
+  animation: practice-ring 720ms ease-out forwards;
+}
+.practice-glow.is-hit {
+  animation: practice-flash 640ms ease-out forwards;
+}
+
+/* Los contadores son grises; el de recordadas da un salto y se tiñe de verde cada vez que sube */
+.practice-count {
+  color: var(--ion-color-medium);
+}
+.practice-count.is-bumped {
+  animation: practice-bump 420ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+
+@keyframes practice-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+@keyframes practice-ring {
+  0% { transform: scale(0.6); opacity: 0.75; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes practice-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes practice-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.35); color: var(--ion-color-success); }
+  100% { transform: scale(1); }
+}
+
+/* Con movimiento reducido se conservan los cambios de opacidad pero no los saltos ni el anillo */
+@media (prefers-reduced-motion: reduce) {
+  .practice-top-icon,
+  .practice-top-icon.is-hit .practice-top-icon__copy--live,
+  .practice-count.is-bumped {
+    animation: none;
+    transition: none;
+  }
+  .practice-top-icon.is-hit::after {
+    display: none;
+  }
+}
