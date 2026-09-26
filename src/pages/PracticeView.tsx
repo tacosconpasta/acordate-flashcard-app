@@ -89,6 +89,7 @@ const PracticeView: React.FC = () => {
   const liveNumLeftRef = useRef<HTMLSpanElement>(null);
   const liveNumRightRef = useRef<HTMLSpanElement>(null);
   const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liftRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const cardCenterX = useRef(0); //centro de la tarjeta en pantalla al empezar el arrastre
   const velBuf = useRef<Sample[]>([]);
@@ -200,6 +201,11 @@ const PracticeView: React.FC = () => {
     }, HIT_DURATION);
   }
 
+  //La tarjeta se levanta al tocarla y vuelve a posarse al soltarla
+  function setLifted(on: boolean) {
+    liftRef.current?.classList.toggle("is-held", on);
+  }
+
   function snapBack() {
     move(0, 0, 0, "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)");
     showSides(0);
@@ -210,6 +216,7 @@ const PracticeView: React.FC = () => {
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStart.current = { x: e.clientX, y: e.clientY };
     velBuf.current = [{ x: e.clientX, y: e.clientY, t: Date.now() }];
+    setLifted(true);
 
     // Antes de moverla la tarjeta está en su sitio, así que este es su centro real
     const rect = e.currentTarget.getBoundingClientRect();
@@ -238,6 +245,7 @@ const PracticeView: React.FC = () => {
     const { vx, vy } = velocity(velBuf.current);
     dragStart.current = null;
     velBuf.current = [];
+    setLifted(false);
 
     const speed = Math.sqrt(vx * vx + vy * vy);
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -266,6 +274,7 @@ const PracticeView: React.FC = () => {
     if (!dragStart.current) return;
     dragStart.current = null;
     velBuf.current = [];
+    setLifted(false);
     snapBack();
   }
 
@@ -350,6 +359,14 @@ const PracticeView: React.FC = () => {
               "transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.22s ease";
             el.style.transform = "translate(0px, 0px) scale(1)";
             el.style.opacity = "1";
+          }
+
+          //El estirón va en el contenedor interno para no pelear con la transición del envoltorio
+          const lift = liftRef.current;
+          if (lift) {
+            lift.classList.remove("is-entering");
+            void lift.offsetWidth;
+            lift.classList.add("is-entering");
           }
           busy.current = false;
         });
@@ -530,7 +547,6 @@ const PracticeView: React.FC = () => {
                   position: "relative",
                   zIndex: 1,
                   borderRadius: 24,
-                  boxShadow: "0 6px 28px rgba(0,0,0,0.13)",
                   willChange: "transform",
                   cursor: "grab",
                   touchAction: "none",
@@ -541,7 +557,7 @@ const PracticeView: React.FC = () => {
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerCancel}
               >
-                <div style={{ perspective: "1200px", width: "100%", height: "100%", position: "relative" }}>
+                <div ref={liftRef} className="practice-lift" style={{ perspective: "1200px", width: "100%", height: "100%", position: "relative" }}>
                   <div style={{
                     width: "100%",
                     height: "100%",

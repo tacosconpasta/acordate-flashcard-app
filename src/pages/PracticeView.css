@@ -150,3 +150,35 @@
     display: none;
   }
 }
+
+/* La sombra vive en el contenedor interno, que es el que se escala: así las caras y su sombra crecen juntas y no asoma ningún borde */
+.practice-lift {
+  border-radius: 24px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.13);
+  transition: transform 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 160ms ease-out;
+  will-change: transform;
+}
+
+/* Levantar la tarjeta al tocarla: crece un poco y la sombra se separa del fondo */
+.practice-lift.is-held {
+  transform: scale(1.03);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* La siguiente tarjeta entra estirándose hacia arriba y recuperando su forma */
+.practice-lift.is-entering {
+  animation: practice-breath 460ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes practice-breath {
+  0% { transform: scale(0.96, 1.04); }
+  55% { transform: scale(1.03, 0.97); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .practice-lift,
+  .practice-lift.is-entering {
+    animation: none;
+    transition: none;
+  }
+}
