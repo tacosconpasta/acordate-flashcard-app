@@ -18,7 +18,7 @@ import {
 } from "ionicons/icons";
 import { Camera } from "@capacitor/camera";
 import { useHistory } from "react-router-dom";
-import { initDatabase, insertUser, seedExampleData } from "../lib/Database";
+import { initDatabase, insertUser } from "../lib/Database";
 
 const Onboarding: React.FC = () => {
   const history = useHistory();
@@ -67,7 +67,6 @@ const Onboarding: React.FC = () => {
     try {
       await initDatabase();
       const userId = await insertUser({ name: trimmed, image });
-      await seedExampleData(userId);
       history.replace("/home");
     } catch (err) {
       setError(String(err));

@@ -10,6 +10,10 @@ import { SM2 } from "./SM2";
 
 const DB_NAME = "acordate";
 
+// Versión del esquema. Se sube cada vez que cambian las tablas: una base con
+// otra versión se vacía y se vuelve a crear. No hay migración de datos.
+export const SCHEMA_VERSION = 2;
+
 const CREATE_TABLES = `
   PRAGMA foreign_keys = ON;
 
@@ -42,6 +46,26 @@ const CREATE_TABLES = `
   );
 `;
 
+//Orden inverso a las claves foráneas, para que ningún DROP falle por dependencias
+const DROP_TABLES = `
+  DROP TABLE IF EXISTS card;
+  DROP TABLE IF EXISTS deck;
+  DROP TABLE IF EXISTS user;
+`;
+
+// Deja la base en el esquema actual: la crea si es nueva y la vacía si es de otra versión
+async function ensureSchema(conn: SQLiteDBConnection): Promise<void> {
+  //SQLite guarda un entero libre por base de datos, aquí se usa como versión del esquema
+  const result = await conn.query("PRAGMA user_version");
+  const version = Number(result.values?.[0]?.user_version ?? 0);
+  const outdated = version !== SCHEMA_VERSION;
+
+  // Una base recién creada tiene versión 0 y no tiene tablas, así que borrar no hace nada
+  if (outdated) await conn.execute(DROP_TABLES);
+  await conn.execute(CREATE_TABLES);
+  if (outdated) await conn.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+}
+
 const sqlite = new SQLiteConnection(CapacitorSQLite);
 let dbPromise: Promise<SQLiteDBConnection> | null = null;
 
@@ -63,7 +87,7 @@ async function openDb(): Promise<SQLiteDBConnection> {
   }
 
   await conn.open();
-  await conn.execute(CREATE_TABLES);
+  await ensureSchema(conn);
   return conn;
 }
 
@@ -324,180 +348,4 @@ export async function getDecksWithStats(
     });
   }
   return rows;
-}
-
-export async function seedExampleData(userId: number): Promise<void> {
-  const conn = await getDb();
-
-  const existing = await conn.query(
-    "SELECT id FROM deck WHERE user_id = ? LIMIT 1",
-    [userId]
-  );
-  if ((existing.values ?? []).length > 0) return;
-
-  const spanishDeckId = await insertDeck({
-    name: "Vocabulario en Español",
-    image: null,
-    description: "Palabras y frases comunes en español",
-    last_practiced: null,
-    user_id: userId,
-  });
-
-  const japaneseDeckId = await insertDeck({
-    name: "Vocabulario en Japonés",
-    image: null,
-    description: "Palabras y frases básicas en japonés",
-    last_practiced: null,
-    user_id: userId,
-  });
-
-  const spanishCards: NewCard[] = [
-    {
-      front: "Hello",
-      back: "Hola",
-      description: "Saludo básico",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Thank you",
-      back: "Gracias",
-      description: "Expresar gratitud",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Goodbye",
-      back: "Adiós",
-      description: "Despedida",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Please",
-      back: "Por favor",
-      description: "Pedir algo amablemente",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Yes",
-      back: "Sí",
-      description: "Afirmación",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "No",
-      back: "No",
-      description: "Negación",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Water",
-      back: "Agua",
-      description: "Bebida esencial",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Friend",
-      back: "Amigo",
-      description: "Persona cercana",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "Good morning",
-      back: "Buenos días",
-      description: "Saludo matutino",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-    {
-      front: "House",
-      back: "Casa",
-      description: "Lugar donde se vive",
-      last_practiced: null,
-      deck_id: spanishDeckId,
-    },
-  ];
-
-  const japaneseCards: NewCard[] = [
-    {
-      front: "こんにちは",
-      back: "Hola!",
-      description: "Saludo de día",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "ありがとう",
-      back: "Gracias",
-      description: "Gracias",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "さようなら",
-      back: "Adiós",
-      description: "Despedida formal",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "はい",
-      back: "Sí",
-      description: "Afirmación",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "いいえ",
-      back: "No",
-      description: "Negación",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "水",
-      back: "Water",
-      description: "Agua",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "友達",
-      back: "Amigo",
-      description: "Persona cercana",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "おはよう",
-      back: "Buenos días",
-      description: "Saludo matutino informal",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "家",
-      back: "House",
-      description: "Casa",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-    {
-      front: "頭",
-      back: "Cabeza",
-      description: "Parte del cuerpo",
-      last_practiced: null,
-      deck_id: japaneseDeckId,
-    },
-  ];
-
-  for (const card of [...spanishCards, ...japaneseCards]) {
-    await insertCard(card);
-  }
 }

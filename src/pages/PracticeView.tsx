@@ -5,11 +5,29 @@ import {
   IonButton,
   IonIcon,
   IonSpinner,
+  IonToast,
 } from "@ionic/react";
-import { arrowBackOutline } from "ionicons/icons";
+import {
+  arrowBackOutline,
+  checkmarkCircleOutline,
+  closeCircleOutline,
+} from "ionicons/icons";
+import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 import { useHistory, useParams } from "react-router-dom";
-import { getCards } from "../lib/Database";
+import { getCards, getDueCards, reviewCard } from "../lib/Database";
+import {
+  FLY_DURATION,
+  flightEnd,
+  isTap,
+  isThrow,
+  landingSide,
+  swipeProgress,
+  velocity,
+  type Point,
+  type Sample,
+} from "../lib/Swipe";
 import type { Card } from "../models/Card";
+import "./PracticeView.css";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -22,6 +40,22 @@ function shuffle<T>(arr: T[]): T[] {
 
 const CARD_HEIGHT = 280;
 
+// Fracción del ancho de pantalla que la tarjeta recorre para que un lado se encienda del todo
+const SIDE_RANGE = 0.35;
+
+//Duración de la recompensa de acierto, igual a la animación más larga del CSS
+const HIT_DURATION = 720;
+
+// Cuánto crece el contador de la barra inferior cuando la tarjeta llega a su lado
+const ICON_GROW = 0.9;
+
+//Cada cuántos aciertos seguidos la celebración es mayor
+const COMBO_MILESTONE = 3;
+
+//Partículas por acierto normal y por hito de racha
+const PARTICLES_HIT = 10;
+const PARTICLES_MILESTONE = 22;
+
 const FACE_BASE: React.CSSProperties = {
   position: "absolute",
   inset: 0,
@@ -33,6 +67,12 @@ const FACE_BASE: React.CSSProperties = {
   padding: "20px 20px 16px",
 };
 
+//Conteo de la sesión actual, se reinicia con cada carga
+interface SessionResults {
+  remembered: number;
+  forgotten: number;
+}
+
 const PracticeView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const history = useHistory();
@@ -41,28 +81,77 @@ const PracticeView: React.FC = () => {
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [flipped, setFlipped] = useState(false);
+  const [results, setResults] = useState<SessionResults>({ remembered: 0, forgotten: 0 });
+  const [toast, setToast] = useState<string | null>(null);
+  const [streak, setStreak] = useState(0);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const glowLeftRef = useRef<HTMLDivElement>(null);
+  const glowRightRef = useRef<HTMLDivElement>(null);
+  const iconLeftRef = useRef<HTMLSpanElement>(null);
+  const iconRightRef = useRef<HTMLSpanElement>(null);
+  const countLeftRef = useRef<HTMLSpanElement>(null);
+  const countRightRef = useRef<HTMLSpanElement>(null);
+  const liveLeftRef = useRef<HTMLIonIconElement>(null);
+  const liveRightRef = useRef<HTMLIonIconElement>(null);
+  const liveNumLeftRef = useRef<HTMLSpanElement>(null);
+  const liveNumRightRef = useRef<HTMLSpanElement>(null);
+  const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const liftRef = useRef<HTMLDivElement>(null);
+  const streakRef = useRef(0);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
-  const velBuf = useRef<Array<{ x: number; y: number; t: number }>>([]);
+  const cardCenterX = useRef(0); //centro de la tarjeta en pantalla al empezar el arrastre
+  const velBuf = useRef<Sample[]>([]);
   const busy = useRef(false);
   const flippedRef = useRef(false);
   const animateFlip = useRef(false);
   const indexRef = useRef(0);
   const cardsRef = useRef<Card[]>([]);
 
+  //Los manejadores de puntero leen refs para no quedarse con un estado viejo
   useEffect(() => { flippedRef.current = flipped; }, [flipped]);
   useEffect(() => { indexRef.current = index; }, [index]);
   useEffect(() => { cardsRef.current = cards; }, [cards]);
+  useEffect(() => { streakRef.current = streak; }, [streak]);
+
+  /**
+   * Arma la cola de la sesión: lo pendiente en orden aleatorio, y si no hay
+   * nada pendiente, todo el mazo. La práctica no termina sola: cada vez que
+   * la cola se agota se vuelve a armar, y el usuario decide cuándo parar.
+   */
+  async function load(fresh: boolean) {
+    setLoading(true);
+    setFlipped(false);
+    animateFlip.current = false;
+    if (fresh) {
+      setResults({ remembered: 0, forgotten: 0 });
+      setStreak(0);
+    }
+    try {
+      const deckId = Number(id);
+      const all = await getCards(deckId);
+
+      //Sin pendientes se sigue con el mazo completo, así siempre hay algo que practicar
+      const due = await getDueCards(deckId, new Date());
+      const queue = shuffle(due.length > 0 ? due : all);
+      setCards(queue);
+      cardsRef.current = queue;
+      setIndex(0);
+      indexRef.current = 0;
+    } catch (err) {
+      setToast(`No se pudieron cargar las tarjetas: ${String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    getCards(Number(id)).then((c) => {
-      const shuffled = shuffle(c);
-      setCards(shuffled);
-      cardsRef.current = shuffled;
-      setLoading(false);
-    });
+    load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => () => { if (hitTimer.current) clearTimeout(hitTimer.current); }, []);
 
   const current = cards[index];
   const next = cards[index + 1];
@@ -75,11 +164,125 @@ const PracticeView: React.FC = () => {
     el.style.transform = `translate(${x}px, ${y}px) rotate(${deg}deg)`;
   }
 
+  /**
+   * Enciende un lado según lo cerca que esté la tarjeta: p va de -1 (izquierda)
+   * a 1 (derecha). El resplandor sube su opacidad, y el ícono de ese lado en la
+   * barra superior baja, crece y revela su copia de color sobre la gris. Se
+   * escribe directo en el DOM para seguir el dedo sin pasar por React.
+   */
+  function showSides(p: number) {
+    const right = Math.max(0, p);
+    const left = Math.max(0, -p);
+    const pose = (v: number) => `scale(${1 + v * ICON_GROW})`;
+
+    if (glowRightRef.current) glowRightRef.current.style.opacity = String(right);
+    if (glowLeftRef.current) glowLeftRef.current.style.opacity = String(left);
+    if (liveRightRef.current) liveRightRef.current.style.opacity = String(right);
+    if (liveLeftRef.current) liveLeftRef.current.style.opacity = String(left);
+    if (liveNumRightRef.current) liveNumRightRef.current.style.opacity = String(right);
+    if (liveNumLeftRef.current) liveNumLeftRef.current.style.opacity = String(left);
+    if (countRightRef.current) countRightRef.current.style.transform = pose(right);
+    if (countLeftRef.current) countLeftRef.current.style.transform = pose(left);
+  }
+
+  /**
+   * Recompensa de acierto: salto del check, anillo, destello del resplandor,
+   * partículas, sacudida y háptico. En los hitos de racha todo es más fuerte.
+   */
+  function celebrate(newStreak: number) {
+    const side = iconRightRef.current;
+    const glow = glowRightRef.current;
+    if (!side || !glow) return;
+
+    const milestone = newStreak > 0 && newStreak % COMBO_MILESTONE === 0;
+
+    // Reiniciar las clases permite repetir la animación aunque el golpe anterior no haya terminado
+    side.classList.remove("is-hit", "is-milestone");
+    glow.classList.remove("is-hit");
+    void side.offsetWidth;
+    side.classList.add("is-hit");
+    if (milestone) side.classList.add("is-milestone");
+    glow.classList.add("is-hit");
+
+    const count = countRightRef.current;
+    if (count) {
+      count.classList.remove("is-bumped");
+      void count.offsetWidth;
+      count.classList.add("is-bumped");
+    }
+
+    burst(side, milestone ? PARTICLES_MILESTONE : PARTICLES_HIT);
+    shakeArea(milestone);
+
+    //Háptico ligero en un acierto normal y de notificación en los hitos
+    const buzz = milestone
+      ? Haptics.notification({ type: NotificationType.Success })
+      : Haptics.impact({ style: ImpactStyle.Light });
+    buzz.catch(() => {});
+
+    if (hitTimer.current) clearTimeout(hitTimer.current);
+    hitTimer.current = setTimeout(() => {
+      side.classList.remove("is-hit", "is-milestone");
+      glow.classList.remove("is-hit");
+      count?.classList.remove("is-bumped");
+    }, HIT_DURATION);
+  }
+
+  //Ráfaga de puntos que salen del centro de un elemento en direcciones al azar y se desvanecen
+  function burst(from: HTMLElement, count: number) {
+    const host = areaRef.current;
+    if (!host) return;
+    const origin = from.getBoundingClientRect();
+    const box = host.getBoundingClientRect();
+    const cx = origin.left + origin.width / 2 - box.left;
+    const cy = origin.top + origin.height / 2 - box.top;
+
+    for (let i = 0; i < count; i++) {
+      const dot = document.createElement("span");
+      dot.className = "practice-particle";
+
+      // Ángulo y distancia al azar; el tamaño varía un poco para que no parezcan clones
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 40 + Math.random() * 70;
+      dot.style.left = `${cx}px`;
+      dot.style.top = `${cy}px`;
+      dot.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+      dot.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
+      dot.style.setProperty("--size", `${4 + Math.random() * 4}px`);
+      host.appendChild(dot);
+      dot.addEventListener("animationend", () => dot.remove(), { once: true });
+    }
+  }
+
+  // Sacudida corta del área de la tarjeta; la fuerte se usa en los hitos
+  function shakeArea(strong: boolean) {
+    const host = areaRef.current;
+    if (!host) return;
+    host.classList.remove("is-shaken", "is-shaken-strong");
+    void host.offsetWidth;
+    host.classList.add(strong ? "is-shaken-strong" : "is-shaken");
+  }
+
+  //La tarjeta se levanta al tocarla y vuelve a posarse al soltarla
+  function setLifted(on: boolean) {
+    liftRef.current?.classList.toggle("is-held", on);
+  }
+
+  function snapBack() {
+    move(0, 0, 0, "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)");
+    showSides(0);
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (busy.current) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStart.current = { x: e.clientX, y: e.clientY };
     velBuf.current = [{ x: e.clientX, y: e.clientY, t: Date.now() }];
+    setLifted(true);
+
+    // Antes de moverla la tarjeta está en su sitio, así que este es su centro real
+    const rect = e.currentTarget.getBoundingClientRect();
+    cardCenterX.current = rect.left + rect.width / 2;
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -87,6 +290,11 @@ const PracticeView: React.FC = () => {
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
     move(dx, dy, dx * 0.10);
+
+    //El lado se enciende según cuánto del ancho de pantalla lleva recorrido la tarjeta
+    showSides(swipeProgress(dx, window.innerWidth * SIDE_RANGE));
+
+    // Solo se guardan las últimas muestras, para que la velocidad refleje el final del gesto
     const buf = velBuf.current;
     buf.push({ x: e.clientX, y: e.clientY, t: Date.now() });
     if (buf.length > 6) buf.shift();
@@ -96,63 +304,96 @@ const PracticeView: React.FC = () => {
     if (!dragStart.current || busy.current) return;
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
-
-    const buf = velBuf.current;
-    let vx = 0, vy = 0;
-    if (buf.length >= 2) {
-      const dt = buf[buf.length - 1].t - buf[0].t;
-      if (dt > 0) {
-        vx = (buf[buf.length - 1].x - buf[0].x) / dt;
-        vy = (buf[buf.length - 1].y - buf[0].y) / dt;
-      }
-    }
+    const { vx, vy } = velocity(velBuf.current);
     dragStart.current = null;
     velBuf.current = [];
+    setLifted(false);
 
     const speed = Math.sqrt(vx * vx + vy * vy);
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist < 10 && speed < 0.3) {
+    //Un toque voltea la tarjeta
+    if (isTap(dist, speed)) {
       animateFlip.current = true;
       setFlipped((f) => !f);
       return;
     }
 
-    if (speed > 0.45 || dist > 120) {
-      flyAway(dx, dy, vx, vy);
-    } else if (Math.abs(dx) > Math.abs(dy) && dist > 40 && !flippedRef.current) {
-      move(0, 0, 0, "transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)");
-      setTimeout(() => { animateFlip.current = true; setFlipped(true); }, 80);
-    } else {
-      move(0, 0, 0, "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)");
+    // Un arrastre corto y lento no es un lanzamiento: la tarjeta vuelve a su sitio
+    if (!isThrow(dist, speed)) {
+      snapBack();
+      return;
     }
+
+    //Lanzamiento libre: la tarjeta vuela hacia donde se lanzó, y el lado en que
+    //cae respecto a la mitad de la pantalla decide si fue recordada u olvidada
+    const end = flightEnd(dx, dy, vx, vy);
+    const side = landingSide(cardCenterX.current + end.x, window.innerWidth);
+    rate(side === "right", end);
   }
 
   function onPointerCancel() {
     if (!dragStart.current) return;
     dragStart.current = null;
     velBuf.current = [];
-    move(0, 0, 0, "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)");
+    setLifted(false);
+    snapBack();
   }
 
-  function flyAway(dx: number, dy: number, vx: number, vy: number) {
+  /**
+   * Califica la tarjeta actual: guarda el resultado con SM-2 mientras la
+   * tarjeta sale volando hasta el punto donde termina el lanzamiento. Si se
+   * olvidó, vuelve al final de la cola para repetirla en la misma sesión.
+   */
+  function rate(remembered: boolean, end: Point) {
+    const card = cardsRef.current[indexRef.current];
+    if (!card || busy.current) return;
+
+    // El lado elegido queda encendido del todo durante el vuelo
+    showSides(remembered ? 1 : -1);
+
+    //La racha cuenta aciertos seguidos y se corta sin ceremonia al olvidar
+    const newStreak = remembered ? streakRef.current + 1 : 0;
+    streakRef.current = newStreak;
+    setStreak(newStreak);
+    if (remembered) celebrate(newStreak);
+
+    flyAway(end, async () => {
+        let updated = card;
+        try {
+          updated = await reviewCard(card, remembered);
+        } catch (err) {
+          setToast(`No se pudo guardar el repaso: ${String(err)}`);
+        }
+
+        // La cola guarda la versión actualizada; una olvidada además se repite al final
+        const queue = cardsRef.current.map((c) => (c.id === updated.id ? updated : c));
+        if (!remembered) {
+          queue.push(updated);
+        }
+        cardsRef.current = queue;
+        setCards(queue);
+        setResults((r) =>
+          remembered
+            ? { ...r, remembered: r.remembered + 1 }
+            : { ...r, forgotten: r.forgotten + 1 }
+        );
+    });
+  }
+
+  // Anima la tarjeta hasta el punto final, guarda mientras vuela y trae la siguiente
+  async function flyAway(end: Point, apply: () => Promise<void>) {
     busy.current = true;
-    const FLY_DURATION = 400;
-    const SWAP_AT = 180; // swap content once card is clearly off-screen
+    const SWAP_AT = 180; //cambiar el contenido cuando la tarjeta ya salió de pantalla
 
-    const speed = Math.sqrt(vx * vx + vy * vy);
-    let endX: number, endY: number;
-    if (speed > 0.05) {
-      endX = dx + vx * FLY_DURATION * 1.4;
-      endY = dy + vy * FLY_DURATION * 1.4;
-    } else {
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      endX = (dx / len) * 700;
-      endY = (dy / len) * 700;
-    }
+    //La inclinación acompaña al lado hacia el que vuela, con tope para que no gire de más
+    const endTilt = Math.sign(end.x) * Math.min(Math.abs(end.x) * 0.05, 30);
+    move(end.x, end.y, endTilt, `transform ${FLY_DURATION}ms cubic-bezier(0.2, 0, 0.4, 1)`);
 
-    const endTilt = Math.sign(endX) * Math.min(Math.abs(endX) * 0.05, 30);
-    move(endX, endY, endTilt, `transform ${FLY_DURATION}ms cubic-bezier(0.2, 0, 0.4, 1)`);
+    // El guardado corre durante el vuelo; si tarda más que la animación se espera a que termine
+    const started = Date.now();
+    await apply();
+    const wait = Math.max(0, SWAP_AT - (Date.now() - started));
 
     setTimeout(() => {
       const el = wrapperRef.current;
@@ -164,19 +405,19 @@ const PracticeView: React.FC = () => {
 
       animateFlip.current = false;
       setFlipped(false);
+      showSides(0);
       const nextIdx = indexRef.current + 1;
-      if (nextIdx >= cardsRef.current.length) {
-        const reshuffled = shuffle(cardsRef.current);
-        cardsRef.current = reshuffled;
-        setCards(reshuffled);
-        setIndex(0);
-        indexRef.current = 0;
-      } else {
-        setIndex(nextIdx);
-        indexRef.current = nextIdx;
-      }
 
-      // Double RAF: first lets React flush the new card content, second triggers transition
+      //Al agotar la cola se vuelve a armar sin reiniciar los contadores
+      if (nextIdx >= cardsRef.current.length) {
+        busy.current = false;
+        load(false);
+        return;
+      }
+      setIndex(nextIdx);
+      indexRef.current = nextIdx;
+
+      // Doble RAF: el primero deja que React pinte la nueva tarjeta, el segundo lanza la transición
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const el = wrapperRef.current;
@@ -186,17 +427,26 @@ const PracticeView: React.FC = () => {
             el.style.transform = "translate(0px, 0px) scale(1)";
             el.style.opacity = "1";
           }
+
+          //El estirón va en el contenedor interno para no pelear con la transición del envoltorio
+          const lift = liftRef.current;
+          if (lift) {
+            lift.classList.remove("is-entering");
+            void lift.offsetWidth;
+            lift.classList.add("is-entering");
+          }
           busy.current = false;
         });
       });
-    }, SWAP_AT);
+    }, wait);
   }
 
+  // Sacudir el teléfono voltea la tarjeta si la respuesta está oculta, y la marca olvidada si ya se ve
   useEffect(() => {
     let lastShake = 0;
     let lastX = 0, lastY = 0, lastZ = 0;
     let primed = false;
-    const SHAKE_DELTA = 28; // m/s² of jerk between samples
+    const SHAKE_DELTA = 28; // m/s² de cambio entre muestras
     const COOLDOWN = 900;
 
     function onMotion(e: DeviceMotionEvent) {
@@ -219,8 +469,15 @@ const PracticeView: React.FC = () => {
         const now = Date.now();
         if (now - lastShake > COOLDOWN) {
           lastShake = now;
-          const side = Math.random() < 0.5 ? -1 : 1;
-          flyAway(side * 80, -60, side * 1.0, -0.6);
+          if (!cardsRef.current[indexRef.current]) return;
+          if (!flippedRef.current) {
+            animateFlip.current = true;
+            setFlipped(true);
+            return;
+          }
+
+          //Con la respuesta a la vista, la sacudida equivale a lanzarla hacia la izquierda
+          rate(false, flightEnd(-80, -60, -1.0, -0.6));
         }
       }
     }
@@ -237,6 +494,7 @@ const PracticeView: React.FC = () => {
     }
 
     return () => window.removeEventListener("devicemotion", onMotion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {
@@ -253,8 +511,16 @@ const PracticeView: React.FC = () => {
 
   return (
     <IonPage>
-      <IonContent scrollY={false}>
-        {/* Back button */}
+      <IonContent scrollY={false} className="practice">
+        {/* Resplandores de borde, detrás de la tarjeta */}
+        {!empty && current && (
+          <>
+            <div ref={glowLeftRef} className="practice-glow practice-glow--left" />
+            <div ref={glowRightRef} className="practice-glow practice-glow--right" />
+          </>
+        )}
+
+        {/* Botón de volver */}
         <div style={{
           position: "absolute",
           top: "calc(var(--ion-safe-area-top) + 10px)",
@@ -266,25 +532,47 @@ const PracticeView: React.FC = () => {
           </IonButton>
         </div>
 
-        {/* Progress */}
+        {/* Contadores de la sesión, abajo: olvidadas a la izquierda y recordadas a la derecha */}
         {!empty && current && (
-          <p style={{
+          <div style={{
             position: "absolute",
-            top: "calc(var(--ion-safe-area-top) + 18px)",
+            bottom: "calc(var(--ion-safe-area-bottom) + 22px)",
             left: 0, right: 0,
             margin: 0,
-            textAlign: "center",
             zIndex: 50,
-            fontSize: "0.85rem",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 48,
+            fontSize: "0.95rem",
             color: "var(--ion-color-medium)",
             pointerEvents: "none",
           }}>
-            {index + 1} / {cards.length}
-          </p>
+            <span ref={countLeftRef} className="practice-count" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span ref={iconLeftRef} className="practice-bar-icon practice-bar-icon--left">
+                <IonIcon icon={closeCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--idle" />
+                <IonIcon ref={liveLeftRef} icon={closeCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--live" />
+              </span>
+              <span className="practice-bar-number">
+                <span className="practice-bar-number__copy practice-bar-number__copy--idle">{results.forgotten}</span>
+                <span ref={liveNumLeftRef} className="practice-bar-number__copy practice-bar-number__copy--live practice-bar-number__copy--left">{results.forgotten}</span>
+              </span>
+            </span>
+            <span ref={countRightRef} className="practice-count" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span ref={iconRightRef} className="practice-bar-icon practice-bar-icon--right">
+                <IonIcon icon={checkmarkCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--idle" />
+                <IonIcon ref={liveRightRef} icon={checkmarkCircleOutline} className="practice-bar-icon__copy practice-bar-icon__copy--live" />
+              </span>
+              <span className="practice-bar-number">
+                <span className="practice-bar-number__copy practice-bar-number__copy--idle">{results.remembered}</span>
+                <span ref={liveNumRightRef} className="practice-bar-number__copy practice-bar-number__copy--live practice-bar-number__copy--right">{results.remembered}</span>
+              </span>
+            </span>
+          </div>
         )}
 
-        {/* Main area */}
-        <div style={{
+        {/* Área principal */}
+        <div ref={areaRef} className="practice-area" style={{
           height: "100%",
           display: "flex",
           alignItems: "center",
@@ -296,17 +584,33 @@ const PracticeView: React.FC = () => {
           boxSizing: "border-box",
         }}>
           {empty ? (
-            <div style={{ textAlign: "center" }}>
+            <div style={{ textAlign: "center", maxWidth: 320 }}>
+              <IonIcon
+                icon={closeCircleOutline}
+                style={{ fontSize: 56, color: "var(--ion-color-medium)", marginBottom: 8 }}
+              />
               <p style={{ color: "var(--ion-color-medium)" }}>
                 No hay tarjetas en este mazo.
               </p>
-              <IonButton onClick={() => history.goBack()}>Volver</IonButton>
+              <IonButton expand="block" fill="clear" onClick={() => history.goBack()}>
+                Volver
+              </IonButton>
             </div>
           ) : !current ? (
             <IonSpinner name="crescent" />
           ) : (
             <div style={{ position: "relative", width: "100%", maxWidth: 400 }}>
-              {/* Next card peeking behind */}
+              {/* Racha de aciertos, centrada sobre la tarjeta; se vuelve a montar para repetir la entrada */}
+              {streak >= 2 && (
+                <div
+                  key={streak}
+                  className={`practice-streak${streak % COMBO_MILESTONE === 0 ? " is-milestone" : ""}`}
+                >
+                  ×{streak}
+                </div>
+              )}
+
+              {/* Siguiente tarjeta asomando detrás */}
               {next && (
                 <div style={{
                   position: "absolute",
@@ -319,7 +623,7 @@ const PracticeView: React.FC = () => {
                 }} />
               )}
 
-              {/* Draggable wrapper */}
+              {/* Contenedor arrastrable */}
               <div
                 ref={wrapperRef}
                 style={{
@@ -327,7 +631,6 @@ const PracticeView: React.FC = () => {
                   position: "relative",
                   zIndex: 1,
                   borderRadius: 24,
-                  boxShadow: "0 6px 28px rgba(0,0,0,0.13)",
                   willChange: "transform",
                   cursor: "grab",
                   touchAction: "none",
@@ -338,7 +641,7 @@ const PracticeView: React.FC = () => {
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerCancel}
               >
-                <div style={{ perspective: "1200px", width: "100%", height: "100%", position: "relative" }}>
+                <div ref={liftRef} className="practice-lift" style={{ perspective: "1200px", width: "100%", height: "100%", position: "relative" }}>
                   <div style={{
                     width: "100%",
                     height: "100%",
@@ -347,7 +650,7 @@ const PracticeView: React.FC = () => {
                     transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
                     position: "relative",
                   } as React.CSSProperties}>
-                    {/* Front face */}
+                    {/* Cara frontal */}
                     <div style={{ ...FACE_BASE, background: "var(--ion-card-background, var(--ion-item-background))" }}>
                       <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ion-color-medium)" }}>
                         Frente
@@ -359,7 +662,7 @@ const PracticeView: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Back face */}
+                    {/* Cara trasera */}
                     <div style={{ ...FACE_BASE, transform: "rotateY(180deg)", background: "var(--ion-color-primary)" }}>
                       <p style={{ margin: 0, fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.6)" }}>
                         Reverso
@@ -369,6 +672,11 @@ const PracticeView: React.FC = () => {
                           {current.back}
                         </p>
                       </div>
+                      {current.description ? (
+                        <p style={{ margin: 0, fontSize: "0.85rem", textAlign: "center", color: "rgba(255,255,255,0.75)" }}>
+                          {current.description}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -377,23 +685,13 @@ const PracticeView: React.FC = () => {
           )}
         </div>
 
-        {/* Hint */}
-        {!empty && current && (
-          <p style={{
-            position: "absolute",
-            bottom: "calc(var(--ion-safe-area-bottom) + 20px)",
-            left: 0, right: 0,
-            margin: 0,
-            textAlign: "center",
-            fontSize: "0.8rem",
-            color: "var(--ion-color-medium)",
-            pointerEvents: "none",
-          }}>
-            {flipped
-              ? "Lanza en cualquier dirección para continuar"
-              : "Toca para ver respuesta · Lanza para descartar"}
-          </p>
-        )}
+        <IonToast
+          isOpen={toast !== null}
+          message={toast ?? ""}
+          duration={3000}
+          color="danger"
+          onDidDismiss={() => setToast(null)}
+        />
       </IonContent>
     </IonPage>
   );

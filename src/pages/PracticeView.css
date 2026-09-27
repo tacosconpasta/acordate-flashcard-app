@@ -1,0 +1,267 @@
+/*
+ * Vista de práctica: resplandores de borde, íconos laterales y recompensa.
+ * Los valores de ajuste visual están como variables al inicio para afinarlos
+ * sin tocar el componente.
+ */
+.practice {
+  --practice-glow-width: 48vw;
+  --practice-glow-alpha: 0.62;
+  --practice-glow-blur: 30px;
+  --practice-bar-icon-size: 18px;
+  --practice-follow: 90ms;
+}
+
+/* Resplandor anclado a un borde: elipse alta y angosta, muy difuminada, del color del lado a transparente */
+.practice-glow {
+  position: absolute;
+  top: -15%;
+  bottom: -15%;
+  width: var(--practice-glow-width);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(var(--practice-glow-blur));
+  transition: opacity var(--practice-follow) linear;
+  will-change: opacity;
+}
+.practice-glow--left {
+  left: 0;
+  background: radial-gradient(
+    ellipse 55% 62% at 0% 50%,
+    rgba(var(--ion-color-danger-rgb), var(--practice-glow-alpha)),
+    transparent 72%
+  );
+}
+.practice-glow--right {
+  right: 0;
+  background: radial-gradient(
+    ellipse 55% 62% at 100% 50%,
+    rgba(var(--ion-color-success-rgb), var(--practice-glow-alpha)),
+    transparent 72%
+  );
+}
+
+/* Ícono de la barra de contadores: en reposo gris, con el arrastre gana color; el crecimiento lo lleva el contador completo */
+.practice-bar-icon {
+  position: relative;
+  display: inline-block;
+  width: var(--practice-bar-icon-size);
+  height: var(--practice-bar-icon-size);
+  font-size: var(--practice-bar-icon-size);
+}
+
+/* Dos copias del ícono superpuestas: la gris siempre presente y la de color encima, que se revela con el arrastre */
+.practice-bar-icon__copy {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--practice-follow) linear;
+}
+.practice-bar-icon__copy--idle {
+  color: var(--ion-color-medium);
+}
+.practice-bar-icon__copy--live {
+  opacity: 0;
+}
+.practice-bar-icon--left .practice-bar-icon__copy--live {
+  color: var(--ion-color-danger);
+}
+.practice-bar-icon--right .practice-bar-icon__copy--live {
+  color: var(--ion-color-success);
+}
+
+/* Número del contador: la copia gris da el tamaño y la de color se superpone y se revela con el arrastre */
+.practice-bar-number {
+  position: relative;
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+.practice-bar-number__copy--idle {
+  color: var(--ion-color-medium);
+}
+.practice-bar-number__copy--live {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--practice-follow) linear;
+}
+.practice-bar-number__copy--left {
+  color: var(--ion-color-danger);
+}
+.practice-bar-number__copy--right {
+  color: var(--ion-color-success);
+}
+
+/* Recompensa de acierto: el ícono da un golpe de escala y suelta un anillo que se expande y desvanece */
+.practice-bar-icon.is-hit .practice-bar-icon__copy--live {
+  opacity: 1;
+  animation: practice-pop 620ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.practice-bar-icon.is-hit::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--ion-color-success);
+  animation: practice-ring 720ms ease-out forwards;
+}
+.practice-glow.is-hit {
+  animation: practice-flash 640ms ease-out forwards;
+}
+
+/* Contador (ícono + número): gris, crece con el arrastre desde su base; el de recordadas da un salto y se tiñe de verde cada vez que sube */
+.practice-count {
+  color: var(--ion-color-medium);
+  transform-origin: center bottom;
+  transition: transform var(--practice-follow) ease-out;
+  will-change: transform;
+}
+.practice-count.is-bumped {
+  animation: practice-bump 420ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+
+@keyframes practice-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+@keyframes practice-ring {
+  0% { transform: scale(0.6); opacity: 0.75; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes practice-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes practice-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.35); color: var(--ion-color-success); }
+  100% { transform: scale(1); }
+}
+
+/* Con movimiento reducido se conservan los cambios de opacidad pero no los saltos ni el anillo */
+@media (prefers-reduced-motion: reduce) {
+  .practice-count,
+  .practice-bar-icon.is-hit .practice-bar-icon__copy--live,
+  .practice-count.is-bumped {
+    animation: none;
+    transition: none;
+  }
+  .practice-bar-icon.is-hit::after {
+    display: none;
+  }
+}
+
+/* La sombra vive en el contenedor interno, que es el que se escala: así las caras y su sombra crecen juntas y no asoma ningún borde */
+.practice-lift {
+  border-radius: 24px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.13);
+  transition: transform 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 160ms ease-out;
+  will-change: transform;
+}
+
+/* Levantar la tarjeta al tocarla: crece un poco y la sombra se separa del fondo */
+.practice-lift.is-held {
+  transform: scale(1.03);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* La siguiente tarjeta entra estirándose hacia arriba y recuperando su forma */
+.practice-lift.is-entering {
+  animation: practice-breath 460ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes practice-breath {
+  0% { transform: scale(0.96, 1.04); }
+  55% { transform: scale(1.03, 0.97); }
+  100% { transform: scale(1); }
+}
+
+/* Racha de aciertos sobre la tarjeta: entra con un salto; en los hitos es más grande */
+.practice-streak {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -52px;
+  text-align: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ion-color-success);
+  pointer-events: none;
+  animation: practice-combo-in 380ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.practice-streak.is-milestone {
+  font-size: 1.8rem;
+}
+@keyframes practice-combo-in {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+/* Hito de racha: el salto del check es mayor y el anillo más grueso */
+.practice-bar-icon.is-milestone .practice-bar-icon__copy--live {
+  animation: practice-pop-strong 700ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.practice-bar-icon.is-milestone::after {
+  border-width: 3px;
+  animation-duration: 900ms;
+}
+@keyframes practice-pop-strong {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.9); }
+  100% { transform: scale(1); }
+}
+
+/* Partícula: un punto verde que sale del origen hacia --dx/--dy y se desvanece */
+.practice-particle {
+  position: absolute;
+  width: var(--size, 6px);
+  height: var(--size, 6px);
+  margin: calc(var(--size, 6px) / -2) 0 0 calc(var(--size, 6px) / -2);
+  border-radius: 50%;
+  background: var(--ion-color-success);
+  pointer-events: none;
+  z-index: 3;
+  animation: practice-particle 640ms cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+@keyframes practice-particle {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
+}
+
+/* Sacudida amortiguada del área: pocos píxeles y cada vez menos */
+.practice-area.is-shaken {
+  animation: practice-shake 260ms ease-out;
+}
+.practice-area.is-shaken-strong {
+  animation: practice-shake-strong 340ms ease-out;
+}
+@keyframes practice-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(2px, -1px); }
+  50% { transform: translate(-2px, 1px); }
+  75% { transform: translate(1px, 0); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes practice-shake-strong {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(4px, -2px); }
+  40% { transform: translate(-4px, 2px); }
+  60% { transform: translate(2px, -1px); }
+  80% { transform: translate(-1px, 1px); }
+  100% { transform: translate(0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .practice-lift,
+  .practice-lift.is-entering,
+  .practice-streak,
+  .practice-area.is-shaken,
+  .practice-area.is-shaken-strong {
+    animation: none;
+    transition: none;
+  }
+  .practice-particle {
+    display: none;
+  }
+}
