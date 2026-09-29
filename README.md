@@ -108,14 +108,14 @@ npx cap add android && npx cap open android
 
 ## Testing
 
-Unit tests run on [Vitest](https://vitest.dev/) with the `jsdom` environment configured in `vite.config.ts`. They cover the logic layers only; there are no component or end-to-end tests yet. Files under `bak/` are excluded from the test run.
+Unit tests run on [Vitest](https://vitest.dev/) with the `jsdom` environment configured in `vite.config.ts`. They cover the logic layers only; the user flows are covered by the Cypress specs described below.
 
 | File | Tests | What it checks |
 | ---- | ----- | -------------- |
 | `src/lib/SM2.test.ts` | 12 | New cards, the 1 → 6 → 15 → 38 day progression, the 10-year cap, lapses, `preview`, `stats`, `nextDueDate` and a corrupt due date |
 | `src/lib/Database.test.ts` | 11 | Schema version reset, `insertCard` / `updateCard` progress fields, `getDueCards` ordering, `reviewCard`, `resetCardProgress`, `getDecksWithStats` |
 | `src/lib/ProgressFormat.test.ts` | 17 | Interval labels, relative dates by calendar day, card due text, pending summary |
-| `src/lib/Swipe.test.ts` | 15 | Tap vs throw, flight end point, landing side, pointer velocity, drag progress curve |
+| `src/lib/Swipe.test.ts` | 16 | Tap vs throw, flight end point, landing side, pointer velocity, drag progress curve |
 | `src/App.test.tsx` | 1 | The app renders |
 
 Two conventions keep the tests deterministic:
