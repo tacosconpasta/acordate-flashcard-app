@@ -38,7 +38,7 @@ Acórdate is a cross-platform flashcard app that runs natively on iOS and Androi
 | Native Runtime | Capacitor v8 (iOS & Android)                                      |
 | Storage        | `@capacitor-community/sqlite` (native) / `sql.js` + `jeep-sqlite` |
 | Routing        | React Router v5 via `@ionic/react-router`                         |
-| Testing        | Vitest (unit) + Cypress (e2e) — _none as of yet_                  |
+| Testing        | Vitest (unit, 57 tests) + Cypress (e2e, 3 specs)                  |
 
 ---
 
@@ -84,10 +84,13 @@ npm run dev
 # Build for production
 npm run build
 
-# Run unit tests
+# Run unit tests once
+npx vitest run
+
+# Run unit tests in watch mode
 npm run test.unit
 
-# Run e2e tests
+# Run e2e tests (needs the dev server on port 5173 in another terminal)
 npm run test.e2e
 ```
 
@@ -103,23 +106,73 @@ npx cap add android && npx cap open android
 
 ---
 
+## Testing
+
+Unit tests run on [Vitest](https://vitest.dev/) with the `jsdom` environment configured in `vite.config.ts`. They cover the logic layers only; there are no component or end-to-end tests yet. Files under `bak/` are excluded from the test run.
+
+| File | Tests | What it checks |
+| ---- | ----- | -------------- |
+| `src/lib/SM2.test.ts` | 12 | New cards, the 1 → 6 → 15 → 38 day progression, the 10-year cap, lapses, `preview`, `stats`, `nextDueDate` and a corrupt due date |
+| `src/lib/Database.test.ts` | 11 | Schema version reset, `insertCard` / `updateCard` progress fields, `getDueCards` ordering, `reviewCard`, `resetCardProgress`, `getDecksWithStats` |
+| `src/lib/ProgressFormat.test.ts` | 17 | Interval labels, relative dates by calendar day, card due text, pending summary |
+| `src/lib/Swipe.test.ts` | 15 | Tap vs throw, flight end point, landing side, pointer velocity, drag progress curve |
+| `src/App.test.tsx` | 1 | The app renders |
+
+Two conventions keep the tests deterministic:
+
+- **Fixed clock.** `SM2` and the format helpers take the current date as a parameter, so every test uses the same `NOW` and the expected intervals and labels never depend on the day the suite runs.
+- **No real database.** `Database.test.ts` replaces `@capacitor-community/sqlite` with `vi.mock` by a connection that records every statement and its parameters and returns per-table rows prepared by each test. The assertions check the SQL that would be sent, not a SQLite result. Because `Database.ts` caches its connection in a module variable, each test re-imports it with `vi.resetModules()`.
+
+Run a single file with `npx vitest run src/lib/SM2.test.ts`.
+
+### End-to-end (Cypress)
+
+Three specs in `cypress/e2e/` drive the app in a real browser through the flows a new user goes through:
+
+| Spec | Cases |
+| ---- | ----- |
+| `usuario.cy.ts` | "Empezar" stays disabled without a name; onboarding creates the user and lands on an empty Home |
+| `mazo.cy.ts` | A deck without a name is rejected; a deck with name and description shows up in Home and opens empty; name alone is enough |
+| `tarjeta.cy.ts` | Front and back are required; a card appears in the deck list; several cards accumulate |
+
+Shared steps (`createUser`, `createDeck`, `openDeck`, `createCard`) live in `cypress/support/commands.ts`. The web database lives in memory and is never persisted, so every `cy.visit` starts from an empty database and the specs are isolated without extra cleanup.
+
+```bash
+npm run dev            # terminal 1: Vite on http://localhost:5173
+npm run test.e2e       # terminal 2: headless run
+npx cypress open       # or the interactive runner
+```
+
+The web build needs `public/assets/sql-wasm.wasm` to match the `sql.js` version compiled into `jeep-sqlite` (the 1.11.0 build for `jeep-sqlite` 2.8.0); a mismatch shows up as a `WebAssembly.instantiate()` error on the first screen.
+
+---
+
 ## Project Structure
 
 ```
 src/
 ├── lib/ #Utilities
-│   └── Database.ts #SQLite connection + all query functions
+│   ├── Database.ts #SQLite connection + all query functions
+│   ├── Database.test.ts #Emitted SQL against a mocked connection
+│   ├── SM2.ts #SM-2 algorithm class (no React / SQLite)
+│   ├── SM2.test.ts
+│   ├── ProgressFormat.ts #Spanish labels for intervals and due dates
+│   ├── ProgressFormat.test.ts
+│   ├── Swipe.ts #Throw gesture math for the practice view
+│   └── Swipe.test.ts
 ├── models/ #Model classes
 │   ├── Card.ts
 │   ├── Deck.ts
-│   └── User.ts
+│   ├── User.ts
+│   └── progress/ #CardProgress and CardsProgressSummary
 ├── pages/ #Views
 │   ├── Onboarding.tsx
 │   ├── Home.tsx
 │   ├── AddDeck.tsx / ModifyDeck.tsx
 │   ├── ViewDeck.tsx
 │   ├── AddCard.tsx / ModifyCard.tsx
-│   └── PracticeView.tsx
+│   ├── PracticeView.tsx
+│   └── PracticeView.css #Glows, counters and reward animations
 ├── theme/ #Possible future variables
 │   └── variables.css
 └── App.tsx #Route definitions
